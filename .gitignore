@@ -1,7 +1,17 @@
-# Never version local GitHub credentials.
-.git/github-harutoNaiz.credentials
-
-# Local-only Codex CLI runtime and npm cache.
-node_modules/
-.npm-cache/
+# Dependencies and generated output
+.venv/
 .codex-home/
+__pycache__/
+*.py[cod]
+
+# Flutter-generated files
+frontend/.dart_tool/
+frontend/build/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+.DS_Store
