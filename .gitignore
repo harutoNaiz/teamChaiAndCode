@@ -1,2 +1,6 @@
 # Never version local GitHub credentials.
 .git/github-harutoNaiz.credentials
+
+# Local-only Codex CLI runtime and npm cache.
+node_modules/
+.npm-cache/
