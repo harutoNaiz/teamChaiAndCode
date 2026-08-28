@@ -1,0 +1,2 @@
+# Never version local GitHub credentials.
+.git/github-harutoNaiz.credentials
