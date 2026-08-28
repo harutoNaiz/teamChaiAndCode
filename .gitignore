@@ -4,3 +4,4 @@
 # Local-only Codex CLI runtime and npm cache.
 node_modules/
 .npm-cache/
+.codex-home/
