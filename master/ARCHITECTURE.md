@@ -146,6 +146,105 @@ MIME-type filters, and optional source URI. Every `Evidence` includes its
 source URI/open URI, display name, type, extraction text, contextual snippet,
 page/segment when applicable, and ranking score.
 
+## Composable file-operation layer
+
+Natural-language file requests are planned into structured queries; a model never
+receives authority to traverse, move, or delete a URI directly. The planner may
+compose metadata, filename/path, and content predicates in one query, but the
+Android executor is the sole component that resolves and mutates actual sources.
+
+```mermaid
+flowchart LR
+  request[User natural-language request]
+  classify[Intent + operation classifier]
+  plan[Structured FileOperationPlan]
+  metadata[Metadata provider\nMediaStore / SAF document columns]
+  paths[Name and path matcher\nMediaStore path / SAF tree traversal]
+  content[Content retrieval\nlocal lexical/vector index]
+  intersect[Candidate resolver\nAND/OR/NOT + dedupe]
+  preview[Preview manifest\ncount, sources, risks, undo]
+  confirm[Explicit confirmation]
+  execute[Capability-aware Android executor]
+  audit[Local audit log + undo/trash state]
+
+  request --> classify --> plan
+  plan --> metadata --> intersect
+  plan --> paths --> intersect
+  plan --> content --> intersect
+  intersect --> preview --> confirm --> execute --> audit
+```
+
+### Query domains
+
+| Natural-language condition | Structured predicate | Android-backed provider |
+| --- | --- | --- |
+| “created before 2020”, “larger than 500 MB”, “all PDFs” | date, size, MIME/type, media kind | MediaStore columns where visible; SAF document metadata where supplied by the provider |
+| “invoice in its name”, “from Downloads”, “under project folder” | name contains/glob, relative path, selected SAF tree | MediaStore `DISPLAY_NAME`/`RELATIVE_PATH`; DocumentsContract tree traversal |
+| “contains John”, “related to Aadhaar” | extracted-text lexical/semantic predicate | Existing local extraction/vector index |
+
+Compound requests are an abstract syntax tree, not prompt text. For example,
+“delete PDFs containing John created before 2020” is `AND(mime == PDF,
+content contains John, effectiveDate < 2020-01-01)`. The candidate resolver
+intersects stable source IDs, re-checks source availability/capability, and
+deduplicates a source that has multiple extraction/page matches.
+
+### Android constraints and reuse
+
+Use Android's providers rather than raw path traversal. MediaStore exposes
+display name, relative path, MIME type, size, added/modified values, and
+generation numbers; generation numbers are more reliable for change detection
+than date-added alone. `DATE_ADDED` is the time an item entered MediaStore and
+`DATE_MODIFIED` is a filesystem-derived modification time; neither is a
+universal file-creation timestamp. `DATE_TAKEN` may be useful for captured
+media, but is not creation proof. `RELATIVE_PATH` is for organisation and must
+not be converted into a raw filesystem path. [MediaStore MediaColumns](https://developer.android.com/reference/android/provider/MediaStore.MediaColumns.html)
+
+For non-media documents, use Storage Access Framework (SAF) document/tree URIs
+and `DocumentsContract`. SAF grants access only to user-selected documents or
+trees; each provider advertises its own write/delete/move capability. The
+executor must reject unsupported operations instead of falling back to raw-file
+APIs. [Android SAF guide](https://developer.android.com/training/data-storage/shared/documents-files), [DocumentsContract capabilities](https://developer.android.com/reference/android/provider/DocumentsContract.Document)
+
+### Structured plan and primitives
+
+```text
+FileOperationPlan {
+  operation: LIST | MOVE | SOFT_DELETE | RESTORE | RENAME
+  predicate: And | Or | Not | MetadataPredicate | PathPredicate | ContentPredicate
+  scope: authorised MediaStore collection | persisted SAF tree/document
+  candidateLimit: positive bounded number
+  destination: optional authorised URI/tree
+  requestedBy: user turn ID
+}
+
+FileQuery.resolve(plan) -> CandidateFile[]
+FileAction.preview(operation, candidates) -> PreviewManifest
+FileAction.execute(approvedManifest) -> ExecutionReceipt
+```
+
+`CandidateFile` contains stable source ID, authorised URI, name, MIME type,
+available metadata, matching predicates, provider capabilities, and a current
+content/version check. The LLM may suggest a plan, but a deterministic validator
+parses/validates its typed form, enforces limits and scope, and generates the
+preview manifest.
+
+### Safety model
+
+* `LIST` is read-only but still limited to authorised scope and results.
+* `MOVE`, `RENAME`, `SOFT_DELETE`, and `RESTORE` always require a preview and
+  explicit confirmation tied to an immutable candidate manifest.
+* Destructive requests use provider-supported trash/recoverable deletion where
+  available. Permanent deletion is not in the first release. If a provider has
+  no reversible capability, the executor reports unsupported rather than making
+  deletion irreversible.
+* Before execution, re-resolve every URI and content version; changed, missing,
+  revoked, or unsupported candidates are excluded and reported.
+* Store a local audit record with request, structured plan, manifest hash,
+  confirmation, per-source result, timestamps, and undo/trash reference. Do not
+  log raw extracted content unnecessarily.
+* Bulk actions have a bounded candidate limit and require a second explicit
+  confirmation when the actual count differs from the preview.
+
 ## Acceptance contracts
 
 | Capability | Acceptance contract |
@@ -159,6 +258,8 @@ page/segment when applicable, and ranking score.
 | Stale replacement | Re-indexing a changed URI/page removes old text from both lexical and vector results. |
 | Model privacy | A cloud request contains only conversation text allowed by the user plus selected evidence snippets/provenance, never the original retrieved file. |
 | Safe actions | A structured note draft exposes its cited evidence and is saved only after an explicit preview and confirmation. |
+| File-operation planning | Metadata, filename/path, content, and compound natural-language requests produce a validated `FileOperationPlan` and a candidate set with matching reasons; no raw filesystem command is model-generated. |
+| File-operation safety | A move/rename/soft-delete previews exact candidates, rechecks each URI/version at execution, records an audit receipt, and never permanently deletes in the first release. |
 | Performance | The chosen embedding/transcription runtime reports target-device latency, recall/accuracy, package size, memory/battery impact, acceleration path, and CPU fallback. |
 
 ## Current implementation truth — 2026-08-29
@@ -177,6 +278,7 @@ page/segment when applicable, and ranking score.
 | Parakeet audio transcription | UI/service scaffold only; it currently simulates voice status/sample text and does not record or transcribe audio. |
 | Upload control | Srividya's branch removes the visible add/upload affordance, but stale attachment simulation code must be removed as part of the UI cleanup acceptance test. |
 | Actions (notes, files, messages, alarms) | Not implemented as real Android actions; only UI/action placeholders exist. |
+| File-operation planner/executor | Not implemented. Current scope has no metadata/path query planner, SAF/MediaStore capability executor, trash/undo, or audit manifest. |
 
 ## Non-negotiables
 

@@ -5,7 +5,8 @@
 Use the prompt in [`../master/WORKER_PROMPT.md`](../master/WORKER_PROMPT.md).
 Read [`../master/ARCHITECTURE.md`](../master/ARCHITECTURE.md) and your role
 section. The current AppSearch bridge is an early provenance/semantic-index
-implementation; validate it before treating it as production-ready.
+implementation; validate it before treating it as production-ready. For T7/T8
+also read [`FILE_OPERATION_CONTRACT.md`](FILE_OPERATION_CONTRACT.md).
 
 ## Owned paths
 
@@ -41,6 +42,14 @@ Vidya and Suprith can work independently.
 - [ ] **T6: regression proof.** Cover poorly named PDF/photo, OCR, PDF page,
   audio transcript, chat memory, stale replacement, filters, revocation, max
   result bound, and proof that original files do not enter cloud payloads.
+- [ ] **T7: composable file-operation planning.** Add a typed predicate AST and
+  validated `FileOperationPlan` for metadata, filename/path, content, and
+  compound AND/OR/NOT conditions. Resolve a bounded deduplicated candidate
+  manifest; models propose plans but never raw filesystem commands.
+- [ ] **T8: safe provider executor.** Use Suprith's metadata/capability adapter
+  to recheck each URI/version, preview exact candidates, confirm, perform only
+  provider-supported move/rename/soft-delete, and emit local audit/undo receipts.
+  Permanent deletion is explicitly out of scope.
 
 ## Contracts to hand off first
 
@@ -48,6 +57,9 @@ Vidya and Suprith can work independently.
 CatalogWriter.upsert(SourceRecord, ExtractionRecord) -> current record
 AgentRetrieval.search(RetrievalRequest) -> List<Evidence>
 ConversationContext.build(ChatSession, budget) -> model messages + retained IDs
+FileQuery.resolve(FileOperationPlan) -> CandidateFile[]
+FileAction.preview(operation, candidates) -> PreviewManifest
+FileAction.execute(approvedManifest) -> ExecutionReceipt
 ```
 
 Make fake in-memory implementations available in your test fixtures. Do not
@@ -66,3 +78,7 @@ An indexed, poorly named source is semantically retrieved as provenance-bearing
 evidence; a cloud payload contains only bounded chat context plus selected text
 evidence; a cited answer can be connected to an openable source; chat memory and
 audio segments follow the same contract.
+
+For file operations, metadata, path/name, and content predicates can be
+combined; every destructive request is a capability-aware previewed soft-delete
+or a rejected unsupported operation, never an irreversible raw-path command.

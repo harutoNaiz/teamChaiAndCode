@@ -36,6 +36,9 @@ provider transport.
 5. **Grounded answer rendering.** Parse source citations from agent responses,
    connect them to supplied evidence cards, and show a visible uncited-warning
    for an answer that claims a device fact without evidence.
+6. **File-action preview and audit UI.** Render a read-only candidate manifest,
+   matching reasons, risk/undo state, confirmation, and execution receipt. Do
+   not resolve candidates or mutate sources in Flutter.
 
 ### Acceptance
 
@@ -71,6 +74,10 @@ through `CatalogWriter` only; he does not alter Flutter chat UI or ranking.
    candidate runtimes on the Snapdragon Gen 5 target: accuracy/recall, latency,
    package size, RAM, battery, NPU/GPU/CPU path, and CPU fallback. Publish the
    chosen runtime only after evidence.
+6. **Metadata/capability adapter.** Provide authorised MediaStore and SAF source
+   metadata plus provider capabilities to Tushar's file-query/executor contract.
+   Do not implement planning or destructive policy; report unavailable creation
+   time/capability truthfully.
 
 ### Acceptance
 
@@ -109,9 +116,18 @@ edit input/UI widgets, picker/OCR workers, or recording UI.
    completion, select snippets/provenance only, require citation IDs in the
    response, and return typed no-result/index/model failures. Do not implement
    Android mutations here.
-6. **Test suite and compatibility.** Add unit, Flutter integration, and Android
+6. **Composable file-operation planner.** Define and validate the typed
+   `FileOperationPlan` predicate AST; resolve metadata, path/name, and content
+   predicates to a deduplicated bounded candidate manifest. Compose conditions
+   with AND/OR/NOT; never permit raw filesystem commands from a model.
+7. **Capability-aware file executor.** Implement preview/confirmation manifest
+   validation, URI/version recheck, provider-supported move/rename/soft-delete,
+   local audit receipts, and restore/undo when the provider supports it. Reject
+   permanent delete and unsupported providers in this release.
+8. **Test suite and compatibility.** Add unit, Flutter integration, and Android
    device tests for poorly named files, PDF pages, OCR, audio, chat memory,
-   stale replacement, filters, revoked URI, and no-file-to-model behavior.
+   stale replacement, filters, revoked URI, no-file-to-model behavior, metadata
+   filters, path matching, compound predicates, preview changes, and undo.
 
 ### Acceptance
 
@@ -133,6 +149,8 @@ metadata, not silently injected into the model context.
 5. Vidya enables the source-card/open UI against the final evidence contract.
 6. Only after grounded search and answer acceptance: propose a structured note
    action, show its preview, confirm, then create it natively.
+7. File operations begin with read-only planning/listing, then provider-backed
+   move/rename/soft-delete preview; permanent delete is out of scope.
 
 ## Cross-team rules
 
@@ -141,5 +159,7 @@ metadata, not silently injected into the model context.
 * Do not introduce a second OCR store or send source files to a cloud model.
 * Do not call Android background work a cron job; use Android-supported
   scheduling and document its constraints.
+* Do not use raw filesystem paths as authority. Android operations must use
+  authorised MediaStore/SAF URIs and advertised provider capabilities.
 * Keep original user data and generated indexes out of Git. Synthetic test
   fixtures require team approval before being committed.

@@ -5,7 +5,8 @@
 Use the prompt in [`../master/WORKER_PROMPT.md`](../master/WORKER_PROMPT.md).
 Read [`../master/ARCHITECTURE.md`](../master/ARCHITECTURE.md), your role section,
 and [`LOCAL_INDEX_OCR_HANDOVER.md`](LOCAL_INDEX_OCR_HANDOVER.md). The current
-Parakeet UI and OCR references are scaffolds, not working extraction.
+Parakeet UI and OCR references are scaffolds, not working extraction. For S6
+also read [`FILE_OPERATION_CONTRACT.md`](FILE_OPERATION_CONTRACT.md).
 
 ## Owned paths
 
@@ -41,6 +42,11 @@ it lands, use a local fake implementation in your own test paths.
 - [ ] **S5: Snapdragon evidence.** Benchmark candidates on the Snapdragon Gen 5
   target: script accuracy, retrieval-quality effect, latency, package size, RAM,
   battery, and NPU/GPU/CPU execution. Ship CPU fallback and publish raw numbers.
+- [ ] **S6: metadata/capability adapter.** Supply Tushar's query layer with only
+  authorised MediaStore/SAF metadata (name, MIME, size, modified/added values,
+  relative path/tree membership, content version) and provider-advertised
+  move/delete/trash capability. Do not synthesise unavailable creation time or
+  use raw paths as authority.
 
 ## Contract to produce
 

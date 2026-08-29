@@ -6,7 +6,8 @@ Use the prompt in [`../master/WORKER_PROMPT.md`](../master/WORKER_PROMPT.md).
 Read [`../master/ARCHITECTURE.md`](../master/ARCHITECTURE.md) and your section
 of [`../master/ROLES.md`](../master/ROLES.md). Your work is Flutter UI and local
 conversation persistence only; do not implement Android indexing, OCR, model
-transport, or vector ranking.
+transport, or vector ranking. For V6 also read
+[`FILE_OPERATION_CONTRACT.md`](FILE_OPERATION_CONTRACT.md).
 
 ## Owned paths
 
@@ -37,6 +38,9 @@ until Tushar's real coordinator returns it.
 - [ ] **V5: citation linking.** Given agent output plus `Evidence[]`, connect
   citation IDs to cards and source-open callbacks. Warn if a device-content
   answer has no matching evidence citation.
+- [ ] **V6: file-operation preview.** Render the supplied candidate manifest,
+  matching reasons, provider capability/risk, undo availability, confirmation,
+  and execution receipt. Do not resolve URIs or run an operation in Flutter.
 
 ## Contract to consume
 
@@ -51,7 +55,8 @@ invent a source.
 ## Required tests and handoff
 
 Add widget tests for a cited PDF/page, audio transcript segment, chat-memory
-card, no-result, revoked URI, model error, and absence of upload controls.
+card, no-result, revoked URI, model error, file-operation preview/changed
+candidate state, and absence of upload controls.
 Run `flutter test` and `flutter analyze` from `frontend/`. Handoff a UI fixture
 with representative `Evidence[]` values and a short PR note naming any analyzer
 advisories that predate the change.
