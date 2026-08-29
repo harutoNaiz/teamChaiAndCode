@@ -47,11 +47,17 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
 
   final TextEditingController _apiKeyController =
       TextEditingController(text: AgentService.instance.openRouterApiKey);
+  final TextEditingController _searchController = TextEditingController();
+
+  List<AIModelConfig> _freeModels = [];
+  List<AIModelConfig> _filteredFreeModels = [];
   bool _isSyncingModels = false;
 
   @override
   void initState() {
     super.initState();
+    _freeModels = List.from(AgentService.instance.dynamicFreeModels);
+    _filteredFreeModels = List.from(_freeModels);
     _checkDownloadedModels();
   }
 
@@ -61,7 +67,23 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
       sub?.cancel();
     }
     _apiKeyController.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  void _filterModels(String query) {
+    setState(() {
+      if (query.trim().isEmpty) {
+        _filteredFreeModels = List.from(_freeModels);
+      } else {
+        final q = query.toLowerCase();
+        _filteredFreeModels = _freeModels.where((m) {
+          return m.name.toLowerCase().contains(q) ||
+              m.openRouterModelId.toLowerCase().contains(q) ||
+              m.description.toLowerCase().contains(q);
+        }).toList();
+      }
+    });
   }
 
   Future<void> _checkDownloadedModels() async {
@@ -139,7 +161,7 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
     await _checkDownloadedModels();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${model.name} removed from storage.')),
+        SnackBar(content: Text('${model.name} removed from device storage.')),
       );
     }
   }
@@ -155,20 +177,17 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
     }
   }
 
-  Future<void> _syncLiveOpenRouterModels() async {
-    if (AgentService.instance.openRouterApiKey.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter an OpenRouter API key first')),
-      );
-      return;
-    }
-
+  Future<void> _syncFreeOpenRouterModels() async {
     setState(() => _isSyncingModels = true);
-    final count = await AgentService.instance.fetchLiveOpenRouterModels();
+    final freeList = await AgentService.instance.fetchFreeOpenRouterModels();
     if (mounted) {
-      setState(() => _isSyncingModels = false);
+      setState(() {
+        _isSyncingModels = false;
+        _freeModels = freeList;
+        _filterModels(_searchController.text);
+      });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Synced $count live models from your OpenRouter account!')),
+        SnackBar(content: Text('Fetched ${_freeModels.length} free models from OpenRouter!')),
       );
     }
   }
@@ -180,7 +199,7 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
     return SafeArea(
       child: Container(
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.85,
+          maxHeight: MediaQuery.of(context).size.height * 0.88,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: SingleChildScrollView(
@@ -204,10 +223,10 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
               // Title
               Row(
                 children: [
-                  const Icon(Icons.memory_rounded, color: AppTheme.brandAccent, size: 22),
+                  const Icon(Icons.tune_rounded, color: AppTheme.brandAccent, size: 22),
                   const SizedBox(width: 8),
                   const Text(
-                    'Select AI Engine & Models',
+                    'Select AI Engine & Free Models',
                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                   ),
                 ],
@@ -217,18 +236,18 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
               // ===============================================================
               // SECTION 1: On-Device / Local Open-Source Models (LiteRT)
               // ===============================================================
-              _buildSectionHeader('📱 ON-DEVICE OPEN-SOURCE MODELS (LITERT / NPU)', isDark),
+              _buildSectionHeader('📱 ON-DEVICE OPEN-SOURCE MODELS (LITERT)', isDark),
               const SizedBox(height: 8),
               ...AIModelConfig.localModels.map((model) => _buildLocalModelTile(model, isDark)),
               const SizedBox(height: 16),
 
               // ===============================================================
-              // SECTION 2: OpenRouter Cloud Open-Weight Models
+              // SECTION 2: Free OpenRouter Models (Dynamic Dropdown / Filter)
               // ===============================================================
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildSectionHeader('🌐 OPENROUTER OPEN-WEIGHT MODELS', isDark),
+                  _buildSectionHeader('🌐 FREE OPENROUTER MODELS (${_freeModels.length} AVAILABLE)', isDark),
                   if (_isSyncingModels)
                     const SizedBox(
                       width: 14,
@@ -237,20 +256,107 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                     )
                   else
                     InkWell(
-                      onTap: _syncLiveOpenRouterModels,
-                      child: const Text(
-                        'Sync Live',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          color: AppTheme.brandAccent,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      onTap: _syncFreeOpenRouterModels,
+                      child: const Row(
+                        children: [
+                          Icon(Icons.refresh_rounded, size: 14, color: AppTheme.brandAccent),
+                          SizedBox(width: 4),
+                          Text(
+                            'Refresh Free',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: AppTheme.brandAccent,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                 ],
               ),
               const SizedBox(height: 8),
-              ...AIModelConfig.openRouterModels.map((model) => _buildOpenRouterTile(model, isDark)),
+
+              // Search Filter for Free Models
+              Container(
+                height: 38,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF222222) : const Color(0xFFF1F3F5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  style: TextStyle(fontSize: 13, color: isDark ? Colors.white : Colors.black87),
+                  decoration: InputDecoration(
+                    hintText: 'Search free OpenRouter models...',
+                    hintStyle: TextStyle(fontSize: 12.5, color: isDark ? Colors.grey : Colors.black45),
+                    prefixIcon: const Icon(Icons.search, size: 16, color: Colors.grey),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                  onChanged: _filterModels,
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // Free Models Dropdown List
+              Container(
+                constraints: const BoxConstraints(maxHeight: 240),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB)),
+                ),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _filteredFreeModels.length,
+                  separatorBuilder: (ctx, idx) => Divider(height: 1, thickness: 0.5, color: isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB)),
+                  itemBuilder: (ctx, idx) {
+                    final model = _filteredFreeModels[idx];
+                    final isSelected = widget.currentModel.id == model.id ||
+                        widget.currentModel.openRouterModelId == model.openRouterModelId;
+
+                    return ListTile(
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              model.name,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                color: isSelected ? AppTheme.brandAccent : (isDark ? Colors.white : Colors.black87),
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'FREE',
+                              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.green),
+                            ),
+                          ),
+                        ],
+                      ),
+                      subtitle: Text(
+                        model.openRouterModelId,
+                        style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.grey),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: isSelected ? const Icon(Icons.check_circle, color: AppTheme.brandAccent, size: 18) : null,
+                      onTap: () {
+                        widget.onSelectModel(model);
+                        Navigator.pop(context);
+                      },
+                    );
+                  },
+                ),
+              ),
               const SizedBox(height: 16),
 
               // ===============================================================
@@ -517,92 +623,6 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                 ],
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOpenRouterTile(AIModelConfig model, bool isDark) {
-    final isSelected = widget.currentModel.id == model.id;
-
-    return InkWell(
-      onTap: () {
-        widget.onSelectModel(model);
-        Navigator.pop(context);
-      },
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 3),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? AppTheme.brandAccent.withOpacity(0.08) : (isDark ? const Color(0xFF262626) : Colors.white),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected ? AppTheme.brandAccent : (isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB)),
-            width: isSelected ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.cloud_outlined, size: 18, color: Colors.blueAccent),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          model.name,
-                          style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          model.badge,
-                          style: const TextStyle(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blueAccent,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    model.description,
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      color: isDark ? AppTheme.darkTextSecondary : const Color(0xFF6B7280),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            if (isSelected)
-              const Icon(Icons.check_circle, color: AppTheme.brandAccent, size: 20),
           ],
         ),
       ),

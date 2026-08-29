@@ -26,6 +26,8 @@ class AgentService {
   String backendBaseUrl = 'http://10.0.2.2:5000';
   final LocalIndexBridge _indexBridge = const LocalIndexBridge();
 
+  List<AIModelConfig> dynamicFreeModels = List.from(AIModelConfig.defaultFreeOpenRouterModels);
+
   static const String _apiKeyStorageKey = 'openrouter_api_key_v1';
   static const String _selectedModelKey = 'selected_ai_model_id_v1';
 
@@ -60,23 +62,62 @@ class AgentService {
     }
   }
 
-  Future<int> fetchLiveOpenRouterModels() async {
-    if (openRouterApiKey.isEmpty) return 0;
+  /// Dynamically queries OpenRouter API to fetch only FREE models
+  Future<List<AIModelConfig>> fetchFreeOpenRouterModels() async {
     try {
+      final headers = <String, String>{};
+      if (openRouterApiKey.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $openRouterApiKey';
+      }
+
       final res = await http.get(
         Uri.parse('https://openrouter.ai/api/v1/models'),
-        headers: {'Authorization': 'Bearer $openRouterApiKey'},
+        headers: headers,
       ).timeout(const Duration(seconds: 10));
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final list = data['data'] as List<dynamic>? ?? [];
-        return list.length;
+
+        final List<AIModelConfig> freeList = [];
+
+        for (final item in list) {
+          final id = item['id'] as String? ?? '';
+          final name = item['name'] as String? ?? id;
+          final description = item['description'] as String? ?? 'Free tier open model';
+          final pricing = item['pricing'] as Map<String, dynamic>?;
+
+          final isZeroPricing = pricing != null &&
+              (pricing['prompt'] == '0' || pricing['prompt'] == 0) &&
+              (pricing['completion'] == '0' || pricing['completion'] == 0);
+
+          final isFreeTag = id.contains(':free');
+
+          if (isZeroPricing || isFreeTag) {
+            freeList.add(AIModelConfig(
+              id: 'or-$id',
+              openRouterModelId: id,
+              name: name.contains('(free)') ? name : '$name (Free)',
+              description: description,
+              provider: ModelProvider.openRouter,
+              isFree: true,
+              badge: 'Free OR',
+            ));
+          }
+        }
+
+        if (freeList.isNotEmpty) {
+          dynamicFreeModels = freeList;
+          AIModelConfig.availableModels = [
+            ...AIModelConfig.localModels,
+            ...dynamicFreeModels,
+          ];
+        }
       }
     } catch (e) {
-      debugPrint('Error fetching live OpenRouter models: $e');
+      debugPrint('Error dynamically fetching free OpenRouter models: $e');
     }
-    return 0;
+    return dynamicFreeModels;
   }
 
   Future<ChatMessage> sendMessage({
@@ -111,7 +152,7 @@ class AgentService {
         id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
         role: MessageRole.assistant,
         content: '🔑 **OpenRouter API Key Required**\n\n'
-            'Please tap the model pill at the top of the screen (or open the sidebar ☰) and enter your OpenRouter API Key to start real-time model reasoning.',
+            'Please tap the model dropdown at the top of the screen (or open the sidebar ☰) and enter your OpenRouter API Key to start real-time model reasoning.',
         timestamp: DateTime.now(),
       );
     }
@@ -187,7 +228,7 @@ class AgentService {
   ) async {
     final selectedModel = modelConfig.openRouterModelId.isNotEmpty
         ? modelConfig.openRouterModelId
-        : 'deepseek/deepseek-chat';
+        : 'google/gemini-2.0-flash-exp:free';
 
     final messages = [
       {
@@ -243,7 +284,7 @@ class AgentService {
         role: MessageRole.assistant,
         content: reply,
         timestamp: DateTime.now(),
-        thoughtProcess: 'Model: $selectedModel (OpenRouter)',
+        thoughtProcess: 'Model: $selectedModel (OpenRouter Free)',
       );
     } else {
       throw Exception('HTTP ${response.statusCode}: ${response.body}');
