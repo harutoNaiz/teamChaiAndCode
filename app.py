@@ -110,10 +110,17 @@ def get_tools():
     return jsonify({
         "tools": [
             {"name": "search_files", "description": "Search local documents, PDFs, and storage", "risk": "safe"},
+            {"name": "list_files", "description": "List authorised files using metadata and path filters", "risk": "safe"},
             {"name": "ocr_image", "description": "Run on-device OCR on images and receipts", "risk": "safe"},
             {"name": "organize_files", "description": "Group or move files by category", "risk": "medium"},
+            {"name": "organize_downloads", "description": "Preview and organize the Downloads folder", "risk": "medium"},
+            {"name": "create_reminder", "description": "Create a reminder through the device calendar", "risk": "medium"},
+            {"name": "move_file", "description": "Move an authorised file to a selected destination", "risk": "medium"},
+            {"name": "rename_file", "description": "Rename an authorised file", "risk": "medium"},
+            {"name": "restore_file", "description": "Restore an item from the app trash manifest", "risk": "medium"},
+            {"name": "upsert_file", "description": "Create or update an indexed file/catalog record", "risk": "medium"},
             {"name": "send_whatsapp", "description": "Send WhatsApp message to contact", "risk": "sensitive"},
-            {"name": "delete_file", "description": "Delete specified file from storage", "risk": "sensitive"},
+            {"name": "soft_delete_file", "description": "Move specified file to trash with undo support", "risk": "sensitive"},
         ]
     })
 

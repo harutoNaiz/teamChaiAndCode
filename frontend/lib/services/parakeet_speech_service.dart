@@ -70,9 +70,12 @@ class ParakeetSpeechService {
           onResult: (result) {
             if (result.recognizedWords.isEmpty) return;
             controller.add(result.recognizedWords);
-            if (result.finalResult)
-              onFinalResult(correctTranscription(result.recognizedWords));
-            onInterimResult(result.recognizedWords);
+            if (result.finalResult) {
+              onFinalResult(correctTranscription(
+                  _cleanRecognitionText(result.recognizedWords)));
+            } else {
+              onInterimResult(_cleanRecognitionText(result.recognizedWords));
+            }
           },
         );
       } catch (_) {
@@ -101,6 +104,18 @@ class ParakeetSpeechService {
       normalized = normalized[0].toUpperCase() + normalized.substring(1);
     }
     return normalized;
+  }
+
+  /// Android recognizers occasionally prepend a transport label or blank line
+  /// to the recognized phrase. Those labels must never become chat content.
+  String _cleanRecognitionText(String rawInput) {
+    var cleaned = rawInput.trim();
+    cleaned = cleaned.replaceFirst(
+      RegExp(r'^(transcript|recognized\s+words?|speech|result)\s*:\s*',
+          caseSensitive: false),
+      '',
+    );
+    return cleaned.trim();
   }
 
   void stopListening() {

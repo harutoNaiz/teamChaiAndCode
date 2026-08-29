@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/parakeet_speech_service.dart';
 
-/// V1: Clean chat input bar — text entry + mic (recording entry point only) + send.
+/// Chat input bar with live speech-to-text feedback while recording.
 /// No attachment state, no fake paths, no simulated transcripts.
 class ChatInputBar extends StatefulWidget {
   /// V1: signature is text-only, no attachment params.
@@ -24,7 +24,7 @@ class ChatInputBar extends StatefulWidget {
 class _ChatInputBarState extends State<ChatInputBar> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
-  Stream<String>? _speechStream;
+  bool _isRecording = false;
 
   @override
   void dispose() {
@@ -42,24 +42,34 @@ class _ChatInputBarState extends State<ChatInputBar> {
   }
 
   void _onMicTap() {
-    if (ParakeetSpeechService.instance.isListening) {
+    if (_isRecording || ParakeetSpeechService.instance.isListening) {
       ParakeetSpeechService.instance.stopListening();
-      setState(() {});
+      if (mounted) setState(() => _isRecording = false);
       return;
     }
-    _speechStream = ParakeetSpeechService.instance.startListening(
+    setState(() => _isRecording = true);
+    ParakeetSpeechService.instance.startListening(
       onFinalResult: (text) {
         if (!mounted) return;
         _controller.text = text;
         _controller.selection = TextSelection.collapsed(offset: text.length);
-        setState(() {});
+        setState(() => _isRecording = false);
       },
-      onInterimResult: (_) {
-        if (mounted) setState(() {});
+      onInterimResult: (text) {
+        if (!mounted) return;
+        // SpeechRecognizer emits interim hypotheses repeatedly. Keep the
+        // latest hypothesis in the composer so the user can see words appear
+        // while speaking instead of receiving one opaque result at the end.
+        _controller.value = _controller.value.copyWith(
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
+          composing: TextRange.empty,
+        );
+        setState(() {});
       },
       onError: () {
         if (!mounted) return;
-        setState(() {});
+        setState(() => _isRecording = false);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text(
               'Microphone permission or speech recognition is unavailable.'),
@@ -67,10 +77,6 @@ class _ChatInputBarState extends State<ChatInputBar> {
         ));
       },
     );
-    _speechStream!.listen((_) {
-      if (mounted) setState(() {});
-    });
-    setState(() {});
   }
 
   @override
@@ -118,7 +124,9 @@ class _ChatInputBarState extends State<ChatInputBar> {
                     color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
                   ),
                   decoration: InputDecoration(
-                    hintText: 'Message teamChai…',
+                    hintText: _isRecording
+                        ? 'Listening… speak now'
+                        : 'Message teamChai…',
                     hintStyle: TextStyle(
                       color:
                           isDark ? AppTheme.darkTextSecondary : Colors.black38,
@@ -132,7 +140,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 ),
               ),
 
-              // Right-side action: stop / send / mic
+              // Keep the stop control visible even after interim speech text
+              // appears in the composer.
               if (widget.isGenerating) ...[
                 IconButton(
                   icon: const Icon(Icons.stop_circle_rounded,
@@ -140,6 +149,22 @@ class _ChatInputBarState extends State<ChatInputBar> {
                   onPressed: widget.onStopGenerating,
                   padding: const EdgeInsets.all(10),
                   constraints: const BoxConstraints(),
+                ),
+              ] else if (_isRecording) ...[
+                Container(
+                  margin: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppTheme.dangerRed.withValues(alpha: 0.14),
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.stop_rounded,
+                        size: 22, color: AppTheme.dangerRed),
+                    onPressed: _onMicTap,
+                    padding: const EdgeInsets.all(8),
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Stop listening',
+                  ),
                 ),
               ] else if (hasText) ...[
                 Container(

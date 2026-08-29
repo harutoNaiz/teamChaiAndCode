@@ -25,6 +25,7 @@ import com.example.team_chai_and_code.catalog.SourceRecord
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
+import java.io.File
 
 @OptIn(ExperimentalAppSearchApi::class)
 class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
@@ -32,6 +33,7 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val preferences = appContext.getSharedPreferences("local_index_sources", Context.MODE_PRIVATE)
+    private val recoveryPreferences = appContext.getSharedPreferences("local_index_recovery", Context.MODE_PRIVATE)
     private val catalog = SharedPreferencesCatalogWriter(appContext)
     private val embedder = LocalTextEmbedder(appContext)
     private var session: AppSearchSession? = null
@@ -52,6 +54,7 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
                     "indexText" -> upsert(readRecord(call.arguments, "text"))
                     "indexOcr" -> upsert(readRecord(call.arguments, "image_ocr"))
                     "indexChatMemory" -> upsert(readRecord(call.arguments, "chat_memory"))
+                    "exportCsv" -> catalog.exportCsv()
                     "openUri" -> openUri(readUri(call.arguments))
                     "search" -> search(readSearchRequest(call.arguments))
                     else -> throw UnsupportedOperationException("Unknown method: ${call.method}")
@@ -91,10 +94,27 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
 
     private fun appSearch(): AppSearchSession {
         session?.let { return it }
-        val created = LocalStorage.createSearchSessionAsync(
-            LocalStorage.SearchContext.Builder(appContext, DATABASE_NAME).build()
-        ).get()
+        if (!recoveryPreferences.getBoolean("recreated_v2", false)) {
+            // The previous vector store may have been written with an invalid
+            // embedding/key-mapper state. Recreate only this app-owned index
+            // before AppSearch opens it; the durable catalog is untouched.
+            File(appContext.filesDir, "appsearch").deleteRecursively()
+        }
+        val created = try {
+            LocalStorage.createSearchSessionAsync(
+                LocalStorage.SearchContext.Builder(appContext, DATABASE_NAME).build()
+            ).get()
+        } catch (first: Exception) {
+            // Recover only the app-owned index after a damaged on-device
+            // vector/key-mapper store. The durable catalog remains intact and
+            // will repopulate AppSearch on the next scan.
+            File(appContext.filesDir, "appsearch").deleteRecursively()
+            LocalStorage.createSearchSessionAsync(
+                LocalStorage.SearchContext.Builder(appContext, DATABASE_NAME).build()
+            ).get()
+        }
         created.setSchemaAsync(SetSchemaRequest.Builder().addSchemas(schema()).build()).get()
+        recoveryPreferences.edit().putBoolean("recreated_v2", true).apply()
         session = created
         return created
     }

@@ -1,0 +1,5 @@
+teamChaiAndCode calendar
+
+Page 1: Architecture discussion - 14 September 2026
+Page 2: Budget meeting - 22 October 2026
+Page 3: Android acceptance review - 3 November 2026

@@ -4,6 +4,7 @@ import '../models/chat_message.dart';
 import '../models/ai_model_config.dart';
 import '../services/chat_storage_service.dart';
 import '../services/agent_service.dart';
+import '../local_index_bridge.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_drawer.dart';
 import '../widgets/chat_message_bubble.dart';
@@ -286,6 +287,10 @@ class _ChatScreenState extends State<ChatScreen> {
                       if (idx < messages.length) {
                         return ChatMessageBubble(
                           message: messages[idx],
+                          availableEvidence:
+                              AgentService.instance.evidenceFor(messages[idx]),
+                          onOpenSource: (uri) =>
+                              const LocalIndexBridge().openUri(uri),
                           onActionUpdated: () {
                             ChatStorageService.instance
                                 .saveSession(_currentSession!);
@@ -347,7 +352,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  'Reasoning & executing tools...',
+                  'Generating response…',
                   style: TextStyle(
                     fontSize: 13,
                     color: isDark ? AppTheme.darkTextSecondary : Colors.black87,

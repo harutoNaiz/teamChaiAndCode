@@ -6,6 +6,7 @@ abstract class LocalIndexClient {
   Future<Map<String, dynamic>> indexOcr(Map<String, dynamic> record);
   Future<Map<String, dynamic>> indexChatMemory(Map<String, dynamic> record);
   Future<List<Map<String, dynamic>>> search(RetrievalRequest request);
+  Future<Map<String, dynamic>> exportCsv();
 }
 
 class LocalIndexException implements Exception {
@@ -15,7 +16,9 @@ class LocalIndexException implements Exception {
   const LocalIndexException(this.code, this.message);
 
   bool get isUnavailable =>
-      code == 'index_unavailable' || code == 'index_closed' || code == 'unimplemented';
+      code == 'index_unavailable' ||
+      code == 'index_closed' ||
+      code == 'unimplemented';
 }
 
 /// Non-UI boundary for indexing and searching Android device content.
@@ -36,32 +39,55 @@ class LocalIndexBridge implements LocalIndexClient {
   }
 
   @override
-  Future<Map<String, dynamic>> indexChatMemory(Map<String, dynamic> record) async {
+  Future<Map<String, dynamic>> indexChatMemory(
+      Map<String, dynamic> record) async {
     return _invokeMap('indexChatMemory', record);
   }
 
   @override
   Future<List<Map<String, dynamic>>> search(RetrievalRequest request) async {
     try {
-      final rawResults = await _channel.invokeListMethod<dynamic>(
-              'search', request.toMap()) ??
-          const [];
+      final rawResults =
+          await _channel.invokeListMethod<dynamic>('search', request.toMap()) ??
+              const [];
       return rawResults
           .map((result) => Map<String, dynamic>.from(result as Map))
           .toList(growable: false);
     } on PlatformException catch (error) {
-      throw LocalIndexException(error.code, error.message ?? 'Local index failed');
+      throw LocalIndexException(
+          error.code, error.message ?? 'Local index failed');
+    } on MissingPluginException {
+      throw const LocalIndexException('index_unavailable',
+          'On-device retrieval is unavailable on this platform.');
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> exportCsv() async {
+    try {
+      final result =
+          await _channel.invokeMapMethod<String, dynamic>('exportCsv');
+      if (result == null) {
+        throw const LocalIndexException(
+            'empty_result', 'CSV export returned no result');
+      }
+      return Map<String, dynamic>.from(result);
+    } on PlatformException catch (error) {
+      throw LocalIndexException(
+          error.code, error.message ?? 'CSV export failed');
     } on MissingPluginException {
       throw const LocalIndexException(
-          'index_unavailable', 'On-device retrieval is unavailable on this platform.');
+          'index_unavailable', 'CSV export is unavailable on this platform.');
     }
   }
 
   Future<Map<String, dynamic>> openUri(String uri) async {
-    final result = await _channel.invokeMapMethod<String, dynamic>('openUri', {'uri': uri});
+    final result = await _channel
+        .invokeMapMethod<String, dynamic>('openUri', {'uri': uri});
     if (result == null) {
       throw PlatformException(
-          code: 'empty_result', message: 'OpenUri operation returned no result');
+          code: 'empty_result',
+          message: 'OpenUri operation returned no result');
     }
     return Map<String, dynamic>.from(result);
   }
@@ -77,7 +103,8 @@ class LocalIndexBridge implements LocalIndexClient {
       }
       return Map<String, dynamic>.from(result);
     } on PlatformException catch (error) {
-      throw LocalIndexException(error.code, error.message ?? 'Local index failed');
+      throw LocalIndexException(
+          error.code, error.message ?? 'Local index failed');
     }
   }
 }
