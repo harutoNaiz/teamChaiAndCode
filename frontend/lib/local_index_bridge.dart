@@ -4,6 +4,7 @@ import 'models/retrieved_evidence.dart';
 abstract class LocalIndexClient {
   Future<Map<String, dynamic>> indexText(Map<String, dynamic> record);
   Future<Map<String, dynamic>> indexOcr(Map<String, dynamic> record);
+  Future<Map<String, dynamic>> indexChatMemory(Map<String, dynamic> record);
   Future<List<Map<String, dynamic>>> search(RetrievalRequest request);
 }
 
@@ -32,6 +33,11 @@ class LocalIndexBridge implements LocalIndexClient {
   @override
   Future<Map<String, dynamic>> indexOcr(Map<String, dynamic> record) async {
     return _invokeMap('indexOcr', record);
+  }
+
+  @override
+  Future<Map<String, dynamic>> indexChatMemory(Map<String, dynamic> record) async {
+    return _invokeMap('indexChatMemory', record);
   }
 
   @override

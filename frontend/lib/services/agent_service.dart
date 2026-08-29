@@ -8,6 +8,8 @@ import '../models/chat_message.dart';
 import '../models/chat_session.dart';
 import '../models/retrieved_evidence.dart';
 import 'local_model_manager_service.dart';
+import 'chat_memory_index_service.dart';
+import 'conversation_context_service.dart';
 import 'retrieval_tool.dart';
 
 enum AgentBackendMode { openRouterDirect, flaskBackend, localOnDevice }
@@ -19,10 +21,14 @@ class AgentService {
   factory AgentService.withRetrievalTool(RetrievalTool retrievalTool) =>
       AgentService._internal(retrievalTool: retrievalTool);
 
-  AgentService._internal({RetrievalTool? retrievalTool})
-      : _retrievalTool = retrievalTool ?? RetrievalTool();
+  AgentService._internal({RetrievalTool? retrievalTool, ChatMemoryIndexService? chatMemoryIndex, ConversationContextService? contextService})
+      : _retrievalTool = retrievalTool ?? RetrievalTool(),
+        _chatMemoryIndex = chatMemoryIndex ?? ChatMemoryIndexService(),
+        _contextService = contextService ?? ConversationContextService();
 
   final RetrievalTool _retrievalTool;
+  final ChatMemoryIndexService _chatMemoryIndex;
+  final ConversationContextService _contextService;
   AgentBackendMode backendMode = AgentBackendMode.openRouterDirect;
   String openRouterApiKey = '';
   String backendBaseUrl = 'http://10.0.2.2:5000';
@@ -103,6 +109,12 @@ class AgentService {
     AIModelConfig? modelConfig,
     void Function(String partialText)? onStreamChunk,
   }) async {
+    // Existing turns are persisted locally and become cross-session evidence.
+    try {
+      await _chatMemoryIndex.syncSession(session);
+    } catch (error) {
+      debugPrint('Chat memory indexing failed: $error');
+    }
     final needsRetrieval = _needsRetrieval(prompt);
     List<RetrievedEvidence> evidence = const [];
     try {
@@ -126,7 +138,9 @@ class AgentService {
       );
     }
     try {
-      return await _sendToOpenRouter(session, prompt, activeModel, attachmentPath, evidence);
+      final response = await _sendToOpenRouter(session, prompt, activeModel, attachmentPath, evidence);
+      await _indexAssistantResponse(session, response);
+      return response;
     } catch (error) {
       debugPrint('OpenRouter direct call failed: $error');
       return ChatMessage(
@@ -152,11 +166,10 @@ class AgentService {
 
   Future<ChatMessage> _sendToOpenRouter(ChatSession session, String prompt,
       AIModelConfig model, String? attachmentPath, List<RetrievedEvidence> evidence) async {
+    final context = _contextService.build(session);
     final messages = <Map<String, String>>[
       {'role': 'system', 'content': 'You are teamChai, a smartphone assistant. Never claim to have searched a file or read device content without the verified evidence supplied in the user turn. Use only supplied snippets for file facts and cite them as [Source: source_id].'},
-      ...session.messages.take(6).map((message) => {
-            'role': message.isUser ? 'user' : 'assistant', 'content': message.content,
-          }),
+      ...context.messages,
       {'role': 'user', 'content': _promptWithEvidence(prompt, attachmentPath, evidence)},
     ];
     final response = await http.post(Uri.parse('https://openrouter.ai/api/v1/chat/completions'), headers: {
@@ -173,6 +186,14 @@ class AgentService {
       content: _ensureEvidenceCitations(reply, evidence), timestamp: DateTime.now(),
       thoughtProcess: 'Model: ${model.openRouterModelId} (OpenRouter)',
     );
+  }
+
+  Future<void> _indexAssistantResponse(ChatSession session, ChatMessage response) async {
+    try {
+      await _chatMemoryIndex.indexMessage(session, response);
+    } catch (error) {
+      debugPrint('Assistant chat-memory indexing failed: $error');
+    }
   }
 
   bool _needsRetrieval(String prompt) => RegExp(

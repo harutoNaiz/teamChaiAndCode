@@ -72,7 +72,13 @@ def _upsert(content_type: str):
 
 @app.post("/index/text")
 def index_text():
-    return _upsert("text")
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify(error="JSON body must be an object"), 400
+    content_type = payload.get("content_type", "text")
+    if content_type not in {"text", "pdf_text", "chat_memory"}:
+        return jsonify(error="invalid text content_type"), 400
+    return _upsert(content_type)
 
 
 @app.post("/index/ocr")

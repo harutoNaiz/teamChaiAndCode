@@ -77,3 +77,19 @@ class IndexApiTest(unittest.TestCase):
         result = response.get_json()["results"]
         self.assertEqual(["pdf-v1"], [item["identifier"] for item in result])
         self.assertEqual(1789590600000, result[0]["modified_at"])
+
+    def test_chat_memory_is_searchable_with_message_provenance(self):
+        response = self.client.post("/index/text", json={
+            "id": "chat-session-1-message-2",
+            "source_uri": "chat://session/session-1/message/message-2",
+            "display_name": "Planning chat",
+            "mime_type": "text/markdown",
+            "content_type": "chat_memory",
+            "transcription": "Remember that the design review is on Friday.",
+            "modified_at": 1789590600000,
+        })
+
+        self.assertEqual(201, response.status_code)
+        result = self.client.get("/search?q=design%20review&content_type=chat_memory").get_json()["results"]
+        self.assertEqual(["chat-session-1-message-2"], [item["identifier"] for item in result])
+        self.assertEqual("chat://session/session-1/message/message-2", result[0]["open_uri"])
