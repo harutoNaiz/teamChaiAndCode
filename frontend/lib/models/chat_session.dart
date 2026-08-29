@@ -1,3 +1,5 @@
+import 'chat_message.dart';
+
 // V4: Session indexing state enum
 enum SessionIndexingState { notIndexed, indexing, indexed, failed }
 
@@ -8,7 +10,7 @@ class ChatSession {
   DateTime updatedAt;
   String selectedModelId;
   String? compressedSummary;
-  final List<dynamic> messages; // ChatMessage — kept dynamic to avoid circular
+  final List<ChatMessage> messages;
   SessionIndexingState indexingState;
 
   ChatSession({
@@ -18,7 +20,7 @@ class ChatSession {
     required this.updatedAt,
     required this.selectedModelId,
     this.compressedSummary,
-    List<dynamic>? messages,
+    List<ChatMessage>? messages,
     this.indexingState = SessionIndexingState.notIndexed,
   }) : messages = messages ?? [];
 
@@ -26,7 +28,7 @@ class ChatSession {
     updatedAt = DateTime.now();
   }
 
-  void addMessage(dynamic message) {
+  void addMessage(ChatMessage message) {
     messages.add(message);
     touch();
   }
@@ -57,6 +59,10 @@ class ChatSession {
               (e) => e.name == rawState,
               orElse: () => SessionIndexingState.notIndexed,
             ),
+      messages: (json['messages'] as List<dynamic>?)
+              ?.map((item) => ChatMessage.fromJson(Map<String, dynamic>.from(item as Map)))
+              .toList() ??
+          [],
     );
   }
 }

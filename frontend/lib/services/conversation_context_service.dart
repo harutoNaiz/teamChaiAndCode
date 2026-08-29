@@ -1,4 +1,5 @@
 import '../models/chat_session.dart';
+import '../models/chat_message.dart';
 
 class ConversationContext {
   final List<Map<String, String>> messages;
@@ -22,7 +23,7 @@ class ConversationContextService {
 
   ConversationContext build(ChatSession session, {int budget = defaultCharacterBudget}) {
     if (budget < 1024) throw ArgumentError.value(budget, 'budget', 'must be at least 1024');
-    final messages = session.messages;
+    final List<ChatMessage> messages = session.messages;
     final fullSize = messages.fold<int>(0, (sum, item) => sum + item.content.length + 64);
     if (fullSize <= budget) {
       return ConversationContext(
@@ -53,12 +54,12 @@ class ConversationContextService {
     );
   }
 
-  Map<String, String> _asModelMessage(message) => {
+  Map<String, String> _asModelMessage(ChatMessage message) => {
         'role': message.isUser ? 'user' : 'assistant',
         'content': message.content,
       };
 
-  String _boundedTranscript(List<dynamic> messages, int budget) {
+  String _boundedTranscript(List<ChatMessage> messages, int budget) {
     final buffer = StringBuffer();
     for (final message in messages) {
       final remaining = budget - buffer.length;

@@ -112,4 +112,32 @@ void main() {
     expect(await index.search(const RetrievalRequest(query: 'broadlimit', limit: 20)),
         hasLength(20));
   });
+
+  testWidgets('opens source URI for indexed OCR photo result', (tester) async {
+    const photoUri =
+        'content://com.android.externalstorage.documents/document/primary%3ADCIM%2FAadhaar_Card_2026.jpg';
+
+    await index.indexOcr({
+      'id': '$runToken-aadhaar-photo',
+      'source_uri': photoUri,
+      'display_name': 'Aadhaar_Card_2026.jpg',
+      'mime_type': 'image/jpeg',
+      'content_type': 'image_ocr',
+      'transcription':
+          '$runToken Government of India Unique Identification Authority 1234 9876 5432',
+      'ocr_confidence': 0.97,
+      'modified_at': 1789590600000,
+    });
+
+    final searchResults = await index.search('$runToken Unique Identification');
+    expect(searchResults, isNotEmpty);
+    final top = searchResults.first;
+    expect(top['open_uri'], photoUri);
+    expect(top['content_type'], 'image_ocr');
+
+    final openResult = await index.openUri(top['open_uri'] as String);
+    expect(openResult['uri'], photoUri);
+    expect(openResult.containsKey('opened'), isTrue);
+  });
 }
+
