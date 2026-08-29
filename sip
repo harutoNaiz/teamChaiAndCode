@@ -32,3 +32,20 @@ backend_pid=$!
 
 cd frontend
 flutter run
+  if [ "$1" = "-d" ] && [ "${2:-}" = "android" ]; then
+    android_id=$(flutter devices 2>/dev/null | grep -E "android-arm|Android" | awk -F '•' '{print $2}' | tr -d ' ' | head -n 1 || true)
+    if [ -n "$android_id" ]; then
+      run_args+=("-d" "$android_id")
+    else
+      run_args+=("-d" "10BFAT1T7C000XP")
+    fi
+    shift 2
+  else
+    run_args+=("$1")
+    shift
+  fi
+done
+
+cd frontend
+flutter run --dart-define=API_BASE_URL=http://127.0.0.1:5000 "${run_args[@]}"
+
