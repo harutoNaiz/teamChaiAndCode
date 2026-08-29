@@ -468,6 +468,63 @@ class _ChatDrawerState extends State<ChatDrawer> {
                     ),
                   ),
                   const SizedBox(height: 6),
+                  // Refresh: burst-index new/changed files, skip already-seen.
+                  InkWell(
+                    onTap: () async {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content:
+                                Text('Refreshing index - scanning for new files...')),
+                      );
+                      final result =
+                          await ScannerService.instance.refreshIndex();
+                      if (context.mounted) {
+                        if (result.isSuccess) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                  'Indexed ${result.indexedCount} new item(s). Catalog: ${result.catalogRecordCount} record(s).'),
+                              backgroundColor: AppTheme.brandAccent,
+                            ),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Refresh failed: ${result.error}'),
+                              backgroundColor: AppTheme.dangerRed,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 4, horizontal: 4),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.refresh_rounded,
+                              size: 16, color: AppTheme.brandAccent),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Refresh Index (new files)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark
+                                  ? AppTheme.darkTextPrimary
+                                  : Colors.black87,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const Spacer(),
+                          const Icon(Icons.sync,
+                              size: 16, color: Colors.grey),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
                 ],
               ),
             ),

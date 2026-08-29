@@ -39,6 +39,10 @@ class LocalScannerBridge(
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
+    // Durable "already indexed" markers so a refresh skips unchanged files
+    // instead of re-reading and re-running OCR on every pass.
+    private val seenPrefs =
+        appContext.getSharedPreferences("local_scan_seen_v1", Context.MODE_PRIVATE)
     private var pendingResult: MethodChannel.Result? = null
     private var pendingRequestCode: Int = 0
 
@@ -238,6 +242,12 @@ class LocalScannerBridge(
         val records = mutableListOf<Map<String, Any?>>()
         val contentResolver = appContext.contentResolver
 
+        // Skip files already indexed at this modification time. Avoids
+        // re-reading bytes and re-running OCR for every persisted-source pass.
+        if (isScanSeen(uri, lastModified)) {
+            return emptyList()
+        }
+
         if (mimeType.startsWith("image/")) {
             // Image OCR
             val bytes = readBytes(uri) ?: return emptyList()
@@ -277,6 +287,9 @@ class LocalScannerBridge(
                 indexBridge.indexDirectly(recordMap, "text")
                 records.add(recordMap)
             }
+        }
+        if (records.isNotEmpty()) {
+            markScanSeen(uri, lastModified)
         }
         return records
     }
@@ -358,6 +371,13 @@ class LocalScannerBridge(
     private fun sha256(input: String): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
         return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun isScanSeen(uri: Uri, lastModified: Long): Boolean =
+        seenPrefs.getLong(uri.toString(), Long.MIN_VALUE) == lastModified
+
+    private fun markScanSeen(uri: Uri, lastModified: Long) {
+        seenPrefs.edit().putLong(uri.toString(), lastModified).apply()
     }
 
     companion object {

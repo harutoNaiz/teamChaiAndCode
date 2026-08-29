@@ -1,8 +1,22 @@
+import os
+
 from flask import Flask, current_app, jsonify, request
 from local_index import IndexStore, IndexedRecord, LocalTextIndex
+from scanner_pipeline import CsvCatalogStore, LocalScannerPipeline, RefreshScanner
 
 app = Flask(__name__)
 app.config["INDEX_STORE"] = LocalTextIndex()
+# Durable CSV "seen" catalog backing the Refresh button. Dev harness only;
+# production Android keeps its own SAF/MediaStore-authorised catalog.
+app.config["CATALOG_CSV"] = os.environ.get(
+    "TEAMCHAI_CATALOG_CSV", os.path.join(os.path.dirname(__file__), "catalog", "catalog.csv")
+)
+app.config["CATALOG_STORE"] = CsvCatalogStore(app.config["CATALOG_CSV"])
+# Directories a system-wide refresh is allowed to walk. A request may override
+# this; both must point at directories the user has authorised.
+app.config["REFRESH_ROOTS"] = [
+    root for root in os.environ.get("TEAMCHAI_REFRESH_ROOTS", "").split(os.pathsep) if root.strip()
+]
 
 # ==============================================================================
 # Plug-and-Play Extensible Hooks for Local LLM & Unified Device Indexing
@@ -103,6 +117,37 @@ def search():
     source_uri = request.args.get("source_uri") or None
     return jsonify(query=query, results=store.search(query, limit, content_types=content_types,
                                                        mime_types=mime_types, source_uri=source_uri))
+
+
+@app.post("/index/refresh")
+def index_refresh():
+    """System-wide refresh: index new/changed files, skip already-seen ones.
+
+    Dev harness for the Flutter Refresh button. On device this maps to a burst
+    re-scan of authorised SAF/MediaStore sources; here it walks the given roots.
+    Roots must be directories the user authorised (request body or configured
+    default), never an arbitrary system path chosen by the model.
+    """
+    payload = request.get_json(silent=True) or {}
+    roots = payload.get("roots")
+    if roots is None:
+        roots = current_app.config.get("REFRESH_ROOTS", [])
+    if not isinstance(roots, list) or not all(isinstance(r, str) and r.strip() for r in roots):
+        return jsonify(error="roots must be a list of non-empty directory paths"), 400
+    if not roots:
+        return jsonify(
+            error="no refresh roots given; pass roots in the body or set TEAMCHAI_REFRESH_ROOTS"
+        ), 400
+    valid = [r for r in roots if os.path.isdir(r)]
+    if not valid:
+        return jsonify(error="none of the given roots is an existing directory", roots=roots), 400
+
+    index_store = current_app.config["INDEX_STORE"]
+    catalog = current_app.config["CATALOG_STORE"]
+    scanner = RefreshScanner(LocalScannerPipeline(index_store=index_store), catalog)
+    summary = scanner.refresh(valid)
+    summary["roots"] = valid
+    return jsonify(summary)
 
 
 @app.get("/api/agent/tools")

@@ -6,10 +6,12 @@ import unittest
 from local_index import LocalTextIndex
 from scanner_pipeline import (
     BackgroundFileSystemCronWatcher,
+    CsvCatalogStore,
     DefaultLocalOcrEngine,
     LocalScannerPipeline,
     ModelCapability,
     OpenRouterMultimodalExtractor,
+    RefreshScanner,
 )
 
 
@@ -139,6 +141,86 @@ class TestScannerPipeline(unittest.TestCase):
         text, conf = extractor.reason_and_extract(b"Sample multimodal document text", "image/png")
         self.assertIn("Sample multimodal document text", text)
         self.assertGreater(conf, 0.0)
+
+
+
+
+class TestCsvCatalogAndRefresh(unittest.TestCase):
+    def setUp(self):
+        self.index = LocalTextIndex()
+        self.pipeline = LocalScannerPipeline(index_store=self.index)
+        self.corpus = tempfile.mkdtemp()
+        self.state = tempfile.mkdtemp()
+        self.csv_path = os.path.join(self.state, "catalog.csv")
+        self.catalog = CsvCatalogStore(self.csv_path)
+        self.scanner = RefreshScanner(self.pipeline, self.catalog)
+
+    def tearDown(self):
+        shutil.rmtree(self.corpus, ignore_errors=True)
+        shutil.rmtree(self.state, ignore_errors=True)
+
+    def _write(self, name, text):
+        path = os.path.join(self.corpus, name)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        return path
+
+    def test_refresh_indexes_new_then_skips_seen(self):
+        self._write("roadmap.txt", "Quarterly roadmap for teamChai indexing")
+        self._write("budget.md", "Budget review meeting on 25 October 2026")
+
+        first = self.scanner.refresh([self.corpus])
+        self.assertEqual(2, first["indexed"])
+        self.assertEqual(0, first["skipped"])
+        self.assertEqual(2, first["total_rows"])
+        self.assertEqual(1, len(self.index.search("roadmap")))
+
+        second = self.scanner.refresh([self.corpus])
+        self.assertEqual(0, second["indexed"])
+        self.assertEqual(2, second["skipped"])
+        self.assertEqual(2, second["total_rows"])
+
+    def test_refresh_reindexes_changed_file_and_drops_stale_text(self):
+        path = self._write("offer.txt", "Old obsolete contract terms for alpha")
+        self.scanner.refresh([self.corpus])
+        self.assertEqual(1, len(self.index.search("obsolete")))
+
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("Fresh updated agreement terms for the beta project")
+
+        changed = self.scanner.refresh([self.corpus])
+        self.assertEqual(1, changed["indexed"])
+        self.assertEqual(0, changed["skipped"])
+        self.assertEqual(1, changed["total_rows"])
+        self.assertEqual(0, len(self.index.search("obsolete")))
+        self.assertEqual(1, len(self.index.search("updated agreement")))
+
+    def test_refresh_counts_unsupported_files(self):
+        self._write("notes.txt", "keep this one")
+        with open(os.path.join(self.corpus, "archive.bin"), "wb") as handle:
+            handle.write(b"\x00\x01\x02binary")
+
+        summary = self.scanner.refresh([self.corpus])
+        self.assertEqual(1, summary["indexed"])
+        self.assertEqual(1, summary["unsupported"])
+
+    def test_catalog_persists_seen_state_across_instances(self):
+        self._write("roadmap.txt", "Quarterly roadmap for teamChai indexing")
+        self.scanner.refresh([self.corpus])
+
+        reopened = CsvCatalogStore(self.csv_path)
+        self.assertEqual(1, reopened.row_count)
+        rescan = RefreshScanner(LocalScannerPipeline(index_store=LocalTextIndex()), reopened)
+        summary = rescan.refresh([self.corpus])
+        self.assertEqual(0, summary["indexed"])
+        self.assertEqual(1, summary["skipped"])
+
+    def test_catalog_stale_replacement_keeps_one_row_per_unit(self):
+        self.catalog.upsert_row({"source_uri": "file:///a.txt", "content_version": "1:1"})
+        self.catalog.upsert_row({"source_uri": "file:///a.txt", "content_version": "2:2"})
+        self.assertEqual(1, self.catalog.row_count)
+        self.assertTrue(self.catalog.is_indexed("file:///a.txt", None, "2:2"))
+        self.assertFalse(self.catalog.is_indexed("file:///a.txt", None, "1:1"))
 
 
 if __name__ == "__main__":

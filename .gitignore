@@ -12,3 +12,6 @@ frontend/.flutter-plugins-dependencies
 
 # Local environment and editor files
 .DS_Store
+
+# Generated CSV catalog (refresh index export; never the source of truth)
+catalog/

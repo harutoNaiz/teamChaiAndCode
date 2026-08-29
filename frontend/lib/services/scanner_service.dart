@@ -19,6 +19,23 @@ class ScanSourceResult {
   bool get isSuccess => status == 'success' || status == 'indexed';
 }
 
+/// Outcome of a user-triggered "Refresh" burst index across authorised sources.
+class RefreshIndexResult {
+  final int indexedCount;
+  final int catalogRecordCount;
+  final String? catalogPath;
+  final String? error;
+
+  RefreshIndexResult({
+    this.indexedCount = 0,
+    this.catalogRecordCount = 0,
+    this.catalogPath,
+    this.error,
+  });
+
+  bool get isSuccess => error == null;
+}
+
 /// Service providing Android Storage Access Framework (SAF) folder/document discovery,
 /// on-device OCR extraction, and feeding records to the local index.
 class ScannerService {
@@ -145,6 +162,33 @@ class ScannerService {
       } catch (_) {
         return false;
       }
+    }
+  }
+
+  /// Refresh: re-scan every authorised source for new/changed files and export
+  /// the durable CSV catalog. Files already indexed at their current version are
+  /// skipped by the native scanner, so this only surfaces new work.
+  Future<RefreshIndexResult> refreshIndex() async {
+    try {
+      final records = await scanPersistedSources();
+      int catalogRecords = 0;
+      String? catalogPath;
+      try {
+        final export = await _indexBridge.exportCsv();
+        catalogRecords = (export['records'] as num?)?.toInt() ?? 0;
+        catalogPath = export['path'] as String?;
+      } catch (error) {
+        // CSV export is best-effort audit; indexing has already persisted.
+        debugPrint('ScannerService.refreshIndex export skipped: $error');
+      }
+      return RefreshIndexResult(
+        indexedCount: records.length,
+        catalogRecordCount: catalogRecords,
+        catalogPath: catalogPath,
+      );
+    } catch (error) {
+      debugPrint('ScannerService.refreshIndex error: $error');
+      return RefreshIndexResult(error: error.toString());
     }
   }
 

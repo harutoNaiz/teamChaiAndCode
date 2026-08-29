@@ -6,10 +6,13 @@ Implements the contract defined in LOCAL_INDEX_OCR_HANDOVER.md and ROLES.md for 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import csv
 import hashlib
 import os
+import tempfile
 import threading
 import time
+from threading import RLock
 from typing import Any, Callable, Protocol
 
 from local_index import IndexStore, IndexedRecord
@@ -17,6 +20,28 @@ from local_index import IndexStore, IndexedRecord
 
 SUPPORTED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
 SUPPORTED_DOC_MIMES = {"application/pdf", "text/plain", "text/markdown"}
+
+# Development-only extension to MIME mapping shared by the host filesystem
+# scanners. Production Android discovery uses the provider-reported MIME type,
+# never a filename extension.
+_EXTENSION_MIME_MAP = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".heic": "image/heic",
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+    ".log": "text/plain",
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+}
+
+
+def mime_for_extension(filename: str) -> str | None:
+    """Best-effort MIME guess for a host file, or None when it is unsupported."""
+    ext = os.path.splitext(filename)[1].lower()
+    return _EXTENSION_MIME_MAP.get(ext)
 
 
 @dataclass(frozen=True)
@@ -290,18 +315,8 @@ class BackgroundFileSystemCronWatcher:
             for root, _, files in os.walk(root_path):
                 for filename in files:
                     file_path = os.path.join(root, filename)
-                    ext = os.path.splitext(filename)[1].lower()
-                    
-                    mime_type = "application/octet-stream"
-                    if ext in {".jpg", ".jpeg"}:
-                        mime_type = "image/jpeg"
-                    elif ext == ".png":
-                        mime_type = "image/png"
-                    elif ext == ".pdf":
-                        mime_type = "application/pdf"
-                    elif ext in {".txt", ".md", ".log"}:
-                        mime_type = "text/plain"
-                    else:
+                    mime_type = mime_for_extension(filename)
+                    if mime_type is None:
                         continue
 
                     # Development-only local URI. Production Android scanning
@@ -341,3 +356,189 @@ class BackgroundFileSystemCronWatcher:
             except Exception:
                 pass
             time.sleep(self.poll_interval)
+
+
+CATALOG_FIELDS = [
+    "index_id",
+    "source_uri",
+    "display_name",
+    "mime_type",
+    "content_type",
+    "page",
+    "content_version",
+    "modified_at",
+    "ocr_confidence",
+    "indexed_at",
+    "transcription",
+]
+
+
+def _normalize_page(page: Any) -> str:
+    if page is None or page == "":
+        return ""
+    return str(page)
+
+
+def _catalog_unit_key(source_uri: str, page: Any) -> str:
+    return f"{source_uri}|{_normalize_page(page)}"
+
+
+class CsvCatalogStore:
+    """Durable CSV catalog: the persistent "seen files" record for refresh scans.
+
+    Per master/ARCHITECTURE.md the CSV is an audit/join export, never the search
+    engine. Its job here is to let a system-wide refresh skip files already
+    indexed at their current content version instead of re-reading and
+    re-extracting them. LocalTextIndex stays authoritative for retrieval.
+
+    One logical source unit is (source_uri, page). A new content version
+    replaces the prior row for that unit, mirroring the index's stale-replacement
+    rule so old text stops being exported.
+    """
+
+    def __init__(self, csv_path: str) -> None:
+        self.csv_path = csv_path
+        self._lock = RLock()
+        self._rows: dict[str, dict[str, str]] = {}
+        self._versions: dict[str, str] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if not os.path.exists(self.csv_path):
+            return
+        with open(self.csv_path, newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                key = _catalog_unit_key(row.get("source_uri", ""), row.get("page", ""))
+                self._rows[key] = {field: row.get(field, "") for field in CATALOG_FIELDS}
+                self._versions[key] = row.get("content_version", "")
+
+    def is_indexed(self, source_uri: str, page: Any, content_version: str) -> bool:
+        """True when this unit is already recorded at exactly this content version."""
+        with self._lock:
+            return self._versions.get(_catalog_unit_key(source_uri, page)) == content_version
+
+    def upsert_row(self, row: dict[str, Any], *, flush: bool = True) -> None:
+        """Record (or replace) the row for one source unit."""
+        if not row.get("source_uri"):
+            raise ValueError("source_uri is required")
+        key = _catalog_unit_key(row["source_uri"], row.get("page"))
+        normalized = {field: "" for field in CATALOG_FIELDS}
+        for field in CATALOG_FIELDS:
+            value = row.get(field)
+            normalized[field] = "" if value is None else str(value)
+        normalized["page"] = _normalize_page(row.get("page"))
+        with self._lock:
+            self._rows[key] = normalized
+            self._versions[key] = normalized["content_version"]
+            if flush:
+                self._flush()
+
+    def flush(self) -> None:
+        with self._lock:
+            self._flush()
+
+    def _flush(self) -> None:
+        directory = os.path.dirname(self.csv_path) or "."
+        os.makedirs(directory, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(dir=directory, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=CATALOG_FIELDS)
+                writer.writeheader()
+                for key in sorted(self._rows):
+                    writer.writerow(self._rows[key])
+            os.replace(temp_path, self.csv_path)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    @property
+    def row_count(self) -> int:
+        with self._lock:
+            return len(self._rows)
+
+
+class RefreshScanner:
+    """User-triggered system-wide refresh over host directories.
+
+    Development harness for the "Refresh" button. It walks each authorised root,
+    skips any file already recorded in the CSV catalog at its current
+    (size, mtime) version, and runs the shared extraction pipeline only for new
+    or changed files. Production Android uses SAF/MediaStore discovery over
+    user-authorised trees, not a raw filesystem walk, but the skip-if-seen and
+    CSV-catalog contract is identical.
+    """
+
+    def __init__(self, pipeline: "LocalScannerPipeline", catalog: CsvCatalogStore) -> None:
+        self.pipeline = pipeline
+        self.catalog = catalog
+
+    @staticmethod
+    def _content_version(stat_result: os.stat_result) -> str:
+        return f"{stat_result.st_size}:{int(stat_result.st_mtime * 1000)}"
+
+    def refresh(self, roots: list[str]) -> dict[str, Any]:
+        summary: dict[str, Any] = {
+            "scanned_files": 0,
+            "indexed": 0,
+            "skipped": 0,
+            "unsupported": 0,
+            "failed": 0,
+        }
+        for root in roots:
+            if not os.path.isdir(root):
+                continue
+            for dirpath, _, filenames in os.walk(root):
+                for filename in filenames:
+                    file_path = os.path.join(dirpath, filename)
+                    mime_type = mime_for_extension(filename)
+                    if mime_type is None:
+                        summary["unsupported"] += 1
+                        continue
+                    try:
+                        stat_result = os.stat(file_path)
+                    except OSError:
+                        summary["failed"] += 1
+                        continue
+                    # Development-only local URI. Production Android scanning must
+                    # receive a user-authorised SAF/MediaStore content URI.
+                    source_uri = f"file://{file_path}"
+                    content_version = self._content_version(stat_result)
+                    summary["scanned_files"] += 1
+                    if self.catalog.is_indexed(source_uri, None, content_version):
+                        summary["skipped"] += 1
+                        continue
+                    result = self.pipeline.process_source(
+                        source_uri=source_uri,
+                        display_name=filename,
+                        mime_type=mime_type,
+                        file_path=file_path,
+                        modified_at=int(stat_result.st_mtime * 1000),
+                    )
+                    if result.status == "indexed" and result.records:
+                        record = result.records[0]
+                        self.catalog.upsert_row(
+                            {
+                                "index_id": record.identifier,
+                                "source_uri": source_uri,
+                                "display_name": record.display_name,
+                                "mime_type": record.mime_type,
+                                "content_type": record.content_type,
+                                "page": record.page,
+                                "content_version": content_version,
+                                "modified_at": record.modified_at,
+                                "ocr_confidence": record.ocr_confidence,
+                                "indexed_at": int(time.time() * 1000),
+                                "transcription": record.transcription,
+                            },
+                            flush=False,
+                        )
+                        summary["indexed"] += 1
+                    elif result.status == "unchanged":
+                        summary["skipped"] += 1
+                    else:
+                        summary["failed"] += 1
+        self.catalog.flush()
+        summary["csv_path"] = self.catalog.csv_path
+        summary["total_rows"] = self.catalog.row_count
+        return summary
