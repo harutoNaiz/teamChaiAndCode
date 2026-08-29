@@ -1,47 +1,54 @@
-# Team ownership
+# Team ownership and delivery plan
 
-## Vidya — app shell and agent experience
+## Shared starting point
 
-**Owns** the Flutter skeleton and the user-facing agent flow.
+The app currently has a working Android chat shell with conversation context, model selection, and real OpenRouter responses. A native local index also exists, but it only searches records explicitly inserted into it. The next release is to connect phone content to grounded chat responses.
 
-- Build chat and search as switchable surfaces without losing the active conversation context.
-- Define conversation/message state, model-selection state, loading/error states, and result cards.
-- Define a model-provider interface so local and remote models can be selected without rewriting the UI.
-- Create visible insertion points for agent tools, tool previews, permission prompts, and confirmed results.
-- Render retrieval results with title, source type, snippet, and provenance.
+Work in this order. A contributor picks the next uncompleted item in their section, keeps the stated boundary, and adds evidence before merge.
 
-**Delivers** a navigable Flutter app in which a user can select a model, continue a conversation, move to search, and see mocked tool/search results.
+## Vidya — app shell and grounded agent experience
 
-**Does not own** OCR engines, filesystem crawling, or Android action implementations. Those are consumed through stable interfaces.
+**Current ownership:** Flutter chat, conversations, model choice, loading/error states, tool previews, and result cards.
 
-## Suprith — local intelligence and Snapdragon research
+### Next tasks
 
-**Owns** the local OCR and local-model capability investigation.
+1. Add a stable chat-facing retrieval boundary: chat can request a search and receive a list of source-backed results without knowing how Android indexing works.
+2. Render retrieved documents/photos as cards with title, source type, snippet, and location. A model answer must visibly cite the result it used.
+3. Replace silent simulated fallbacks with an explicit offline/error state. The UI must never make a fake file/OCR/action result look real.
+4. Keep model selection provider-agnostic: cloud, local, and unavailable models must have clear status.
 
-- Evaluate offline OCR for camera images, gallery photos, and scanned PDFs; report accuracy, latency, package size, and supported scripts.
-- Prototype local model inference for chat, summarisation, structured JSON extraction, and tool-call selection.
-- Investigate the available Snapdragon acceleration path on target Android hardware. Measure actual gains and retain a CPU/portable fallback; do not make a vendor-specific assumption the app cannot recover from.
-- Define model capability metadata: model ID, local/remote, context limit, supported tasks, availability, and failure reason.
-- Provide an Android-facing interface that the app shell can call without knowing the model/OCR implementation.
-- Build the phone scanner and OCR-to-index pipeline according to [`../handovers/LOCAL_INDEX_OCR_HANDOVER.md`](../handovers/LOCAL_INDEX_OCR_HANDOVER.md). The scanner owns permission-aware source discovery and must send the specified JSON records to the existing local index.
+**Acceptance:** With supplied mock retrieval results, a question shows source cards and an answer that cites one; a failed model request shows an error rather than a fabricated answer.
 
-**Delivers** a reproducible benchmark note, a selected local OCR approach, and a model runtime adapter with graceful fallback behavior.
+## Suprith — local OCR, scanner, and Snapdragon capability
 
-## Tushar — device index and retrieval tools
+**Current ownership:** the phone-content ingestion side: discovery, OCR, and local-model investigation. The existing remote `ocr-branch` contains lint/setup changes only; OCR scanning is still unimplemented.
 
-**Owns** indexed access to user content and the agent’s retrieval interface.
+### Next tasks
 
-- Design Android-safe filesystem discovery using MediaStore and the Storage Access Framework; avoid broad storage access unless truly required.
-- Build a local index for file metadata, extracted document text, OCR text, timestamps, types, and stable source URIs.
-- Implement search with ranked results, snippets, and provenance so the model can ground answers in a specific file/page/image.
-- Define the document and photo ingestion pipeline, including change detection, re-indexing, and failure states.
-- Expose retrieval as a typed agent tool. Later, extend the same tool system for notes, alarms, and file operations.
+1. Implement Android-safe source selection/discovery using Storage Access Framework or MediaStore, with a clear permission state.
+2. Connect the selected local OCR engine to photos and scanned-PDF pages. Measure accuracy, latency, package size, and supported scripts on the target phone.
+3. Send each successful OCR result to the existing index using the JSON contract in [`../handovers/LOCAL_INDEX_OCR_HANDOVER.md`](../handovers/LOCAL_INDEX_OCR_HANDOVER.md). Preserve source URI, display name, page, MIME type, transcription, and confidence.
+4. Report a portable local-model/Snapdragon runtime choice with a CPU fallback. Do not wire an unmeasured model into chat.
 
-**Delivers** a searchable local index that can find a poorly named Aadhaar PDF/photo by its extracted content and return a source-backed result.
+**Acceptance:** Choose a phone folder, scan at least one photo and one PDF page, index their extracted text, then search and open the original source from the result.
 
-## Shared integration rules
+## Tushar — retrieval quality and agent retrieval tool
 
-- Agree tool, search-result, and model-provider contracts in `master/` before crossing ownership boundaries.
-- Keep device-content access on Android and behind explicit permission/confirmation policies.
-- Test the happy path together: retrieve a document, generate a JSON draft, preview it, confirm it, and create a note.
-- Record benchmark results, permission decisions, and changes to scope in `master/`.
+**Current ownership:** indexed access, retrieval ranking, provenance contracts, and the bridge from retrieved evidence to the agent.
+
+### Next tasks
+
+1. Replace the current keyword-only retrieval approach with a local semantic/vector-capable index while preserving the existing source/provenance record contract.
+2. Add ranking, snippets, filters, re-indexing, and failure states for document text and OCR records.
+3. Expose retrieval as a typed agent tool: query in, ranked evidence out. The model receives only the selected snippets and provenance.
+4. Create integration tests covering poorly named PDF/photo discovery, OCR text search, stale-record replacement, and provenance returned to chat.
+
+**Acceptance:** A query for Aadhaar-style details finds a poorly named indexed PDF or photo by its extracted text and returns a source-backed result suitable for the chat layer.
+
+## Shared integration milestones
+
+1. **Grounded search:** scanner/OCR inserts records; retrieval returns ranked source-backed evidence; chat renders it.
+2. **Grounded answer:** agent searches before answering a file question, gives the model only retrieved evidence, and cites the chosen source.
+3. **Safe action:** model produces a structured note draft from retrieved evidence; user previews and confirms it; Android creates the note.
+
+Do not begin real file move/delete, messages, or alarms until milestone 2 is demonstrated end-to-end.
