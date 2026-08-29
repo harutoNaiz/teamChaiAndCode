@@ -1,6 +1,6 @@
 # Team rules
 
-1. Keep exactly two visible top-level project directories: `frontend/` and `master/`.
+1. Keep exactly three visible top-level project directories: `frontend/`, `master/`, and `handovers/`.
 2. Keep Flask backend code in the repository root. Do not create a backend directory.
 3. Keep all Flutter code and Flutter configuration inside `frontend/`.
 4. `master/` contains only durable product decisions and team rules.

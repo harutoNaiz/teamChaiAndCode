@@ -23,6 +23,7 @@
 - Investigate the available Snapdragon acceleration path on target Android hardware. Measure actual gains and retain a CPU/portable fallback; do not make a vendor-specific assumption the app cannot recover from.
 - Define model capability metadata: model ID, local/remote, context limit, supported tasks, availability, and failure reason.
 - Provide an Android-facing interface that the app shell can call without knowing the model/OCR implementation.
+- Build the phone scanner and OCR-to-index pipeline according to [`../handovers/LOCAL_INDEX_OCR_HANDOVER.md`](../handovers/LOCAL_INDEX_OCR_HANDOVER.md). The scanner owns permission-aware source discovery and must send the specified JSON records to the existing local index.
 
 **Delivers** a reproducible benchmark note, a selected local OCR approach, and a model runtime adapter with graceful fallback behavior.
 
