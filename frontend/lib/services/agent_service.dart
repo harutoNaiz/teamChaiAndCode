@@ -21,7 +21,7 @@ class AgentService {
   AgentService._internal();
 
   AgentBackendMode backendMode = AgentBackendMode.openRouterDirect;
-  String openRouterApiKey = '';
+  String openRouterApiKey = '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';
   String backendBaseUrl = 'http://10.0.2.2:5000';
 
   static const String _apiKeyStorageKey = 'openrouter_api_key_v1';
@@ -29,7 +29,10 @@ class AgentService {
   Future<void> init() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      openRouterApiKey = prefs.getString(_apiKeyStorageKey) ?? '';
+      final storedKey = prefs.getString(_apiKeyStorageKey);
+      if (storedKey != null && storedKey.isNotEmpty) {
+        openRouterApiKey = storedKey;
+      }
     } catch (_) {}
   }
 
