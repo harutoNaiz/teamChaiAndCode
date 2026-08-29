@@ -48,6 +48,25 @@ flowchart TB
   evidence --> ui
 ```
 
+### Three-column index mapping
+
+The catalog export is deliberately a joinable mapping, not a second search
+engine. Every extraction row keeps these three linked values together:
+
+```text
+index_id (extraction/vector identity)
+        + local_file_path (authorised URI, UI-only)
+        + model_context (OCR/transcription/text, model-safe)
+```
+
+On a retrieval hit, AppSearch returns the `index_id` and extracted text. The
+coordinator sends only the index ID plus bounded extracted context to the LLM;
+it does **not** send `local_file_path`, the original file, or image/audio bytes.
+The response retains the matching evidence object, and Flutter renders the
+authorised filename/path as a source tag or “Open source” card after generation.
+The batch indexer will populate the same mapping, so reminders and later
+retrieval do not need a separate file-to-text lookup.
+
 ### Retrieval answer flow
 
 ```mermaid
@@ -72,24 +91,33 @@ sequenceDiagram
 
 ## Local data model
 
-The production catalog is a private Android database. CSV is an optional,
-user-visible export/audit format, not the source of truth or the vector store.
+The production catalog is a private Android database. In the current Android
+adapter it is persisted in the app-private SharedPreferences file
+`local_catalog_v1` (the equivalent on-device path is
+`/data/user/0/com.example.team_chai_and_code/shared_prefs/local_catalog_v1.xml`).
+AppSearch LocalStorage owns the searchable lexical/embedding database
+`team_chai_local_index` under the app's private files directory. CSV is an
+optional export/audit format, not the source of truth or the vector store.
+Calling the `teamChaiAndCode/local_index` method `exportCsv` writes
+`<filesDir>/catalog/catalog_export.csv` atomically and returns its path and
+record count; it is never uploaded to the model.
 
 | Record | Required fields | Purpose |
 | --- | --- | --- |
 | `SourceRecord` | `source_id`, authorised `source_uri`, display name, MIME type, created/modified timestamps, content version, availability | Identifies the original PDF, image, recording, or chat message. |
 | `ExtractionRecord` | `extraction_id`, `source_id`, kind, text, page/segment, confidence, extractor version, extracted timestamp | Stores native text, OCR text, transcript, or indexed chat text. |
 | `VectorRecord` | `extraction_id`, embedding model/version, vector, indexed timestamp | Makes the extraction semantically searchable. |
-| `Evidence` | source/extraction IDs, snippet, score, source URI, type, page/segment | The only retrieval payload sent to a model. |
+| `Evidence` | index/extraction ID, snippet, score, local source URI, type, page/segment | The model payload is index ID + extracted context; URI/path is retained for the UI source tag only. |
 
 Extraction kinds are `text`, `pdf_text`, `pdf_ocr`, `image_ocr`,
 `audio_transcript`, and `chat_memory`. A single source can have multiple
 extractions—for example, a PDF has one record per page, and a recording has
 time-coded transcript segments.
 
-An optional CSV export contains: source URI, display name, MIME type, content
-version, extraction kind, page/segment, extraction text, confidence, and
-timestamps. It must never replace URI permission checks or source availability
+The CSV export contains `index_id`, source ID, local file URI/path, display
+name, MIME type, extraction kind, extracted text, confidence, content version,
+and timestamps. It is the durable join/export contract for future batch
+processing; it must never replace URI permission checks or source availability
 checks.
 
 ## Context and privacy policy
@@ -269,7 +297,7 @@ preview manifest.
 | Flutter chat shell, sessions, model selector | Present. Sessions are stored locally as Markdown with YAML-like frontmatter. |
 | Cloud OpenRouter response path | Present when a valid user-configured key is available. |
 | Model discovery/downloader UI | Present. A downloaded local model is not yet connected to real local chat inference. |
-| Local Android index | Present behind a Flutter method channel; it stores explicit text/OCR records with provenance, stale replacement, snippets, filters, and a semantic-embedding implementation. Device compilation/benchmark evidence is still required. |
+| Local Android index | Present behind a Flutter method channel; it stores explicit text/OCR/chat records with provenance, stale replacement, snippets, filters, and semantic embeddings in AppSearch. The durable source/extraction catalog is preference-backed and has an explicit CSV audit export. Device benchmark evidence is still required. |
 | Typed retrieval-to-agent boundary | Present. File-like prompts retrieve before cloud completion and pass selected evidence/provenance; failure/no-result states are explicit. |
 | Chat context to LLM | Present with a bounded full-session builder: all active turns are sent when they fit the budget; older turns retain stable-ID transcript context when compacted. Model/device verification remains pending. |
 | Chat-memory index | Present for stored sessions and new agent responses through `chat_memory` records. Cross-session privacy policy/filtering and device verification remain pending. |
@@ -277,7 +305,7 @@ preview manifest.
 | Background watcher and burst index | Not implemented. |
 | Parakeet audio transcription | UI/service scaffold only. It reports that recording/transcription is unavailable rather than fabricating a transcript; no recorder or Parakeet runtime is wired. |
 | Upload control | The visible upload affordance and attachment parameter have been removed. Source files are selected through Android's authorised picker and are not sent to the cloud model. |
-| Actions (notes, files, messages, alarms) | Not implemented as real Android actions; only UI/action placeholders exist. |
+| Actions (notes, files, messages, alarms) | Note-save, reminder creation, SAF move, SAF rename, OCR dispatch, and indexed upsert are wired through typed bridges with explicit results. Soft-delete/restore, organize, and WhatsApp still require capability adapters and remain unavailable. |
 | File-operation planner/executor | Typed planner/executor primitives exist with deterministic candidate manifests and version checks. They are not connected to a real SAF/MediaStore capability adapter, persistent audit store, or device tests, so mutations remain disabled. |
 
 ## Non-negotiables

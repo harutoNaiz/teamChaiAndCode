@@ -1,0 +1,6 @@
+SYNTHETIC OCR TEST DATA - NOT A REAL IDENTITY DOCUMENT
+
+Government of India
+Aadhaar Test Person
+Date of Birth: 01/01/1990
+Number: 4321 8765 2109

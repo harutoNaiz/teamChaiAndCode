@@ -12,6 +12,8 @@ class MainActivity : FlutterActivity() {
     private lateinit var scannerChannel: MethodChannel
     private lateinit var localModelBridge: LocalModelBridge
     private lateinit var localModelChannel: MethodChannel
+    private lateinit var deviceToolsBridge: DeviceToolsBridge
+    private lateinit var deviceToolsChannel: MethodChannel
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -26,6 +28,10 @@ class MainActivity : FlutterActivity() {
         localModelBridge = LocalModelBridge(this)
         localModelChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "teamChaiAndCode/local_model")
         localModelChannel.setMethodCallHandler(localModelBridge)
+
+        deviceToolsBridge = DeviceToolsBridge(this)
+        deviceToolsChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "teamChaiAndCode/device_tools")
+        deviceToolsChannel.setMethodCallHandler(deviceToolsBridge)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -40,6 +46,7 @@ class MainActivity : FlutterActivity() {
         scannerChannel.setMethodCallHandler(null)
         localModelChannel.setMethodCallHandler(null)
         localModelBridge.close()
+        deviceToolsChannel.setMethodCallHandler(null)
         indexBridge.close()
         super.onDestroy()
     }

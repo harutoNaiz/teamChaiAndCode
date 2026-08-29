@@ -20,6 +20,7 @@ class ChatMessageBubble extends StatefulWidget {
 
   /// V5: Available evidence for citation matching
   final List<RetrievedEvidence>? availableEvidence;
+  final ValueChanged<String>? onOpenSource;
 
   /// V6: Callbacks for file-operation preview
   final ValueChanged<PreviewManifest>? onConfirmOperation;
@@ -30,6 +31,7 @@ class ChatMessageBubble extends StatefulWidget {
     required this.message,
     this.onActionUpdated,
     this.availableEvidence,
+    this.onOpenSource,
     this.onConfirmOperation,
     this.onCancelOperation,
   });
@@ -39,8 +41,6 @@ class ChatMessageBubble extends StatefulWidget {
 }
 
 class _ChatMessageBubbleState extends State<ChatMessageBubble> {
-  bool _showThoughts = false;
-
   void _copyToClipboard(BuildContext context, String text) {
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -74,12 +74,10 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
         children: [
           Flexible(
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: isDark
-                    ? AppTheme.userBubbleDark
-                    : const Color(0xFFE9ECEF),
+                color:
+                    isDark ? AppTheme.userBubbleDark : const Color(0xFFE9ECEF),
                 borderRadius: const BorderRadius.only(
                   topLeft: Radius.circular(18),
                   topRight: Radius.circular(18),
@@ -93,8 +91,7 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
                 style: TextStyle(
                   fontSize: 15,
                   height: 1.4,
-                  color:
-                      isDark ? AppTheme.darkTextPrimary : Colors.black87,
+                  color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
                 ),
               ),
             ),
@@ -109,12 +106,10 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
 
     // V5: Match cited evidence by identifier
     final citedEvidence = <RetrievedEvidence>[];
-    if (widget.availableEvidence != null &&
-        msg.citationIds.isNotEmpty) {
+    if (widget.availableEvidence != null && msg.citationIds.isNotEmpty) {
       for (final id in msg.citationIds) {
-        final match = widget.availableEvidence!
-            .where((e) => e.identifier == id)
-            .toList();
+        final match =
+            widget.availableEvidence!.where((e) => e.identifier == id).toList();
         citedEvidence.addAll(match);
       }
     }
@@ -138,8 +133,7 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
               borderRadius: BorderRadius.circular(16),
             ),
             child: const Center(
-              child:
-                  Icon(Icons.auto_awesome, size: 17, color: Colors.white),
+              child: Icon(Icons.auto_awesome, size: 17, color: Colors.white),
             ),
           ),
           const SizedBox(width: 12),
@@ -155,84 +149,8 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
                     cloudModelName: msg.cloudModelName,
                   ),
 
-                // Thought process accordion
-                if (msg.thoughtProcess != null &&
-                    msg.thoughtProcess!.isNotEmpty) ...[
-                  GestureDetector(
-                    onTap: () =>
-                        setState(() => _showThoughts = !_showThoughts),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF2A2A2A)
-                            : const Color(0xFFF1F3F5),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.psychology_outlined,
-                              size: 14,
-                              color: isDark
-                                  ? AppTheme.darkTextSecondary
-                                  : Colors.black54),
-                          const SizedBox(width: 6),
-                          Text(
-                            _showThoughts
-                                ? 'Hide Reasoning'
-                                : 'View Agent Reasoning',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w500,
-                              color: isDark
-                                  ? AppTheme.darkTextSecondary
-                                  : Colors.black54,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Icon(
-                            _showThoughts
-                                ? Icons.keyboard_arrow_up
-                                : Icons.keyboard_arrow_down,
-                            size: 14,
-                            color: isDark
-                                ? AppTheme.darkTextSecondary
-                                : Colors.black54,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (_showThoughts)
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      margin: const EdgeInsets.only(bottom: 10),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF1E1E1E)
-                            : const Color(0xFFE9ECEF),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                            color: isDark
-                                ? AppTheme.darkBorder
-                                : const Color(0xFFD1D5DB)),
-                      ),
-                      child: SelectableText(
-                        msg.thoughtProcess!,
-                        style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 11.5,
-                          height: 1.35,
-                          color: isDark
-                              ? AppTheme.darkTextSecondary
-                              : Colors.black87,
-                        ),
-                      ),
-                    ),
-                ],
+                // Reasoning metadata is retained internally but never shown
+                // in the user-facing response.
 
                 // Main content
                 SelectableText(
@@ -240,9 +158,7 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
                   style: TextStyle(
                     fontSize: 15,
                     height: 1.45,
-                    color: isDark
-                        ? AppTheme.darkTextPrimary
-                        : Colors.black87,
+                    color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
                   ),
                 ),
 
@@ -250,16 +166,7 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
                 if (citedEvidence.isNotEmpty)
                   EvidenceList(
                     evidences: citedEvidence,
-                    onOpen: (uri) {
-                      // Flutter surfaces the URI; native layer opens it
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Open: $uri'),
-                          duration: const Duration(seconds: 2),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
+                    onOpen: widget.onOpenSource,
                   ),
 
                 // V6: File-operation preview
@@ -293,8 +200,7 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
                       constraints: const BoxConstraints(),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 4, vertical: 4),
-                      onPressed: () =>
-                          _copyToClipboard(context, msg.content),
+                      onPressed: () => _copyToClipboard(context, msg.content),
                     ),
                     const SizedBox(width: 8),
                     Text(

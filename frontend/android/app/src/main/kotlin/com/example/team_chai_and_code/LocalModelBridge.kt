@@ -25,6 +25,7 @@ class LocalModelBridge(private val context: Context) : MethodChannel.MethodCallH
         val modelPath = call.argument<String>("modelPath")
         val prompt = call.argument<String>("prompt")
         val maxOutputTokens = call.argument<Int>("maxOutputTokens") ?: 512
+        val enableThinking = call.argument<Boolean>("enableThinking") ?: false
         if (modelPath.isNullOrBlank() || prompt.isNullOrBlank()) {
             result.error("INVALID_ARGUMENT", "modelPath and prompt are required", null)
             return
@@ -39,6 +40,9 @@ class LocalModelBridge(private val context: Context) : MethodChannel.MethodCallH
                 conversationEngine.createConversation().use { conversation ->
                     val response = conversation.sendMessage(
                         prompt,
+                        // Qwen3 exposes this template variable to skip its
+                        // expensive visible thinking phase for normal chat.
+                        extraContext = mapOf("enable_thinking" to enableThinking),
                         maxOutputToken = maxOutputTokens.coerceIn(1, 2048),
                     )
                     result.success(mapOf("text" to response.toString()))

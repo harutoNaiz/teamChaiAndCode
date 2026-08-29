@@ -13,8 +13,12 @@ import 'chat_storage_service.dart';
 import 'conversation_context_service.dart';
 import 'retrieval_tool.dart';
 import 'local_inference_service.dart';
+import 'agent_tool_catalog.dart';
+import 'device_tools_service.dart';
 
 enum AgentBackendMode { openRouterDirect, flaskBackend, localOnDevice }
+
+enum AgentIntent { generalChat, fileSearch, toolRequest }
 
 /// Coordinates model selection with the typed, provenance-preserving retrieval tool.
 class AgentService {
@@ -35,11 +39,16 @@ class AgentService {
   final ChatMemoryIndexService _chatMemoryIndex;
   final ConversationContextService _contextService;
   final LocalInferenceService _localInference = LocalInferenceService();
+  final DeviceToolsService _deviceTools = DeviceToolsService();
+  final Map<String, List<RetrievedEvidence>> _evidenceByMessageId = {};
   AgentBackendMode backendMode = AgentBackendMode.openRouterDirect;
   String openRouterApiKey = '';
   String backendBaseUrl = 'http://10.0.2.2:5000';
   List<AIModelConfig> dynamicFreeModels =
       List.from(AIModelConfig.defaultFreeOpenRouterModels);
+
+  List<RetrievedEvidence> evidenceFor(ChatMessage message) =>
+      _evidenceByMessageId[message.id] ?? const [];
 
   static const String _apiKeyStorageKey = 'openrouter_api_key_v1';
   static const String _selectedModelKey = 'selected_ai_model_id_v1';
@@ -76,8 +85,18 @@ class AgentService {
 
   Future<String?> getSavedSelectedModelId() async {
     try {
-      return (await SharedPreferences.getInstance())
-          .getString(_selectedModelKey);
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_selectedModelKey);
+      // Migrate the former Qwen default so existing installs use the new
+      // Gamma 4 E4B Lite test target. A later explicit user selection is
+      // persisted normally.
+      if (saved == 'litert-community/qwen3-4b-mixed-int4' ||
+          saved == 'litert-community/qwen2.5-1.5b-q8') {
+        const gammaId = 'litert-community/gemma-4-E4B-it-litert-lm';
+        await prefs.setString(_selectedModelKey, gammaId);
+        return gammaId;
+      }
+      return saved;
     } catch (_) {
       return null;
     }
@@ -177,25 +196,27 @@ class AgentService {
     AIModelConfig? modelConfig,
     void Function(String partialText)? onStreamChunk,
   }) async {
-    // Existing turns are persisted locally and become cross-session evidence.
-    try {
-      await _chatMemoryIndex.syncSession(session);
-    } catch (error) {
-      debugPrint('Chat memory indexing failed: $error');
-    }
-    final needsRetrieval = _needsRetrieval(prompt);
+    // Classify before touching the local index. General conversation (including
+    // greetings) must not incur a memory/index lookup.
+    final intent = classifyIntent(prompt);
+    debugPrint('AGENT_ROUTE intent=${intent.name} prompt="${prompt.trim()}"');
+    final needsRetrieval = intent == AgentIntent.fileSearch;
     List<RetrievedEvidence> evidence = const [];
-    try {
-      evidence = await _retrievalTool.search(RetrievalRequest(query: prompt));
-    } on RetrievalException catch (error) {
-      if (needsRetrieval) return _retrievalFailureMessage(error);
-      debugPrint('Local retrieval unavailable for this turn: ${error.message}');
+    if (needsRetrieval) {
+      try {
+        await _chatMemoryIndex.syncSession(session);
+        evidence = await _retrievalTool.search(RetrievalRequest(query: prompt));
+      } on RetrievalException catch (error) {
+        return _retrievalFailureMessage(error);
+      } catch (error) {
+        debugPrint('Local retrieval unavailable for this turn: $error');
+      }
     }
     if (needsRetrieval && evidence.isEmpty) return _noEvidenceMessage(prompt);
 
     final activeModel = modelConfig ?? AIModelConfig.availableModels.first;
     if (activeModel.isLocal || backendMode == AgentBackendMode.localOnDevice) {
-      return _runLocalModel(session, prompt, activeModel, evidence);
+      return _runLocalModel(session, prompt, activeModel, evidence, intent);
     }
     if (backendMode == AgentBackendMode.flaskBackend)
       return _modelUnavailableMessage();
@@ -211,6 +232,7 @@ class AgentService {
     try {
       final response =
           await _sendToOpenRouter(session, prompt, activeModel, evidence);
+      _evidenceByMessageId[response.id] = evidence;
       await _indexAssistantResponse(session, response);
       return response;
     } catch (error) {
@@ -225,8 +247,12 @@ class AgentService {
     }
   }
 
-  Future<ChatMessage> _runLocalModel(ChatSession session, String prompt,
-      AIModelConfig model, List<RetrievedEvidence> evidence) async {
+  Future<ChatMessage> _runLocalModel(
+      ChatSession session,
+      String prompt,
+      AIModelConfig model,
+      List<RetrievedEvidence> evidence,
+      AgentIntent intent) async {
     final filename = model.filename ?? 'gemma-4-E4B-it.litertlm';
     final downloaded = await LocalModelManagerService.instance
         .isModelDownloaded(model.id, filename);
@@ -243,26 +269,39 @@ class AgentService {
     try {
       final modelPath =
           await LocalModelManagerService.instance.getModelFilePath(filename);
+      debugPrint(
+          'AGENT_MODEL_START model=${model.id} tool_mode=${intent == AgentIntent.toolRequest}');
       final conversation = _contextService.build(session);
       final history = conversation.messages
           .map((message) => '${message['role']}: ${message['content']}')
           .join('\n');
       final contextualPrompt = [
         'You are teamChai, a helpful on-device assistant.',
+        if (intent == AgentIntent.toolRequest)
+          'This is a tool request. Use reasoning privately to select the safest tool. Return a single JSON object with keys tool, arguments, confirmation_required, and user_message. Never execute a destructive operation without confirmation.',
+        if (intent == AgentIntent.toolRequest)
+          'Available tools:\n${AgentToolCatalog.asPrompt()}',
         if (history.isNotEmpty) 'Conversation history:\n$history',
         'Current user request:\n$prompt',
       ].join('\n\n');
       final response = await _localInference.generate(
         modelPath: modelPath,
         prompt: _promptWithEvidence(contextualPrompt, evidence),
+        enableThinking: intent == AgentIntent.toolRequest,
       );
+      debugPrint('AGENT_MODEL_DONE model=${model.id} chars=${response.length}');
+      final plannedAction =
+          intent == AgentIntent.toolRequest ? _parseToolAction(response) : null;
       final message = ChatMessage(
         id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
         role: MessageRole.assistant,
-        content: _ensureEvidenceCitations(response, evidence),
+        content: _ensureEvidenceCitations(
+            _sanitizeModelResponse(response), evidence),
         timestamp: DateTime.now(),
         thoughtProcess: 'Model: ${model.name} (LiteRT-LM on device)',
+        actions: plannedAction == null ? null : [plannedAction],
       );
+      _evidenceByMessageId[message.id] = evidence;
       await _indexAssistantResponse(session, message);
       return message;
     } catch (error) {
@@ -286,7 +325,7 @@ class AgentService {
       {
         'role': 'system',
         'content':
-            'You are teamChai, a smartphone assistant. Never claim to have searched a file or read device content without the verified evidence supplied in the user turn. Use only supplied snippets for file facts and cite them as [Source: source_id].'
+            'You are teamChai, a smartphone assistant. Never claim to have searched a file or read device content without the verified evidence supplied in the user turn. Use only supplied extracted context for file facts and cite the supplied index_id when appropriate. Local file paths and original files are UI-only and are never model input.'
       },
       ...context.messages,
       {'role': 'user', 'content': _promptWithEvidence(prompt, evidence)},
@@ -313,7 +352,8 @@ class AgentService {
     return ChatMessage(
       id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
       role: MessageRole.assistant,
-      content: _ensureEvidenceCitations(reply, evidence),
+      content:
+          _ensureEvidenceCitations(_sanitizeModelResponse(reply), evidence),
       timestamp: DateTime.now(),
       thoughtProcess: 'Model: ${model.openRouterModelId} (OpenRouter)',
     );
@@ -328,14 +368,62 @@ class AgentService {
     }
   }
 
-  bool _needsRetrieval(String prompt) => RegExp(
-          r'\b(find|search|look up|document|file|pdf|photo|image|scan|aadhaar|receipt|ocr)\b',
-          caseSensitive: false)
-      .hasMatch(prompt);
+  AgentIntent classifyIntent(String prompt) {
+    final normalized = prompt.trim();
+    if (normalized.isEmpty) return AgentIntent.generalChat;
+    final isToolRequest = RegExp(
+            r'\b(create|set|add|remind|reminder|move|rename|delete|remove|organize|sort|restore|save|update|upsert)\b',
+            caseSensitive: false)
+        .hasMatch(normalized);
+    if (isToolRequest) return AgentIntent.toolRequest;
+    final isFileQuery = RegExp(
+            r'\b(find|search|look up|show|list|document|file|pdf|photo|image|scan|aadhaar|receipt|ocr)\b',
+            caseSensitive: false)
+        .hasMatch(normalized);
+    return isFileQuery ? AgentIntent.fileSearch : AgentIntent.generalChat;
+  }
+
+  AgentAction? _parseToolAction(String response) {
+    try {
+      final match = RegExp(r'\{[\s\S]*\}').firstMatch(response);
+      if (match == null) return null;
+      final json = jsonDecode(match.group(0)!) as Map<String, dynamic>;
+      final tool = json['tool']?.toString() ?? '';
+      final definition = AgentToolCatalog.byName(tool);
+      if (definition == null) return null;
+      final args = Map<String, dynamic>.from(json['arguments'] as Map? ?? {});
+      return AgentAction(
+        id: 'action-${DateTime.now().millisecondsSinceEpoch}',
+        type: definition.name,
+        title: definition.name.replaceAll('_', ' ').toUpperCase(),
+        description: json['user_message']?.toString() ?? definition.description,
+        permissionLevel: definition.permission,
+        parameters: args,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Remove model-only reasoning and transport preambles before rendering.
+  String _sanitizeModelResponse(String response) {
+    var cleaned = response.trim();
+    cleaned = cleaned.replaceAll(
+        RegExp(r'<think>.*?(?:</think>|$)', caseSensitive: false, dotAll: true),
+        '');
+    cleaned = cleaned.replaceAll(
+        RegExp(r'<analysis>.*?(?:</analysis>|$)',
+            caseSensitive: false, dotAll: true),
+        '');
+    cleaned = cleaned.replaceFirst(
+        RegExp(r'^\s*(assistant|answer|response)\s*:\s*', caseSensitive: false),
+        '');
+    return cleaned.trim();
+  }
 
   String _promptWithEvidence(String prompt, List<RetrievedEvidence> evidence) {
     if (evidence.isEmpty) return prompt;
-    return '$prompt\n\nVerified local retrieval evidence (use only this for device-file facts):\n'
+    return '$prompt\n\nVerified local retrieval evidence (index IDs and extracted context only; never infer or request the original file):\n'
         '${const JsonEncoder.withIndent('  ').convert(evidence.map((item) => item.toModelContext()).toList())}';
   }
 
@@ -369,8 +457,21 @@ class AgentService {
       timestamp: DateTime.now());
 
   Future<bool> executeAction(AgentAction action) async {
-    action.status = ActionStatus.failed;
-    action.errorMessage = 'Android actions are not wired in this build.';
-    return false;
+    debugPrint(
+        'AGENT_TOOL_START type=${action.type} parameters=${action.parameters}');
+    action.status = ActionStatus.executing;
+    try {
+      final outcome =
+          await _deviceTools.execute(action.type, action.parameters);
+      action.result = outcome;
+      action.status = ActionStatus.completed;
+      debugPrint('AGENT_TOOL_RESULT type=${action.type} result=$outcome');
+      return true;
+    } catch (error) {
+      action.status = ActionStatus.failed;
+      action.errorMessage = error.toString();
+      debugPrint('AGENT_TOOL_ERROR type=${action.type} error=$error');
+      return false;
+    }
   }
 }

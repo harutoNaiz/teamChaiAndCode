@@ -54,10 +54,9 @@ class RetrievedEvidence {
   }
 
   Map<String, dynamic> toModelContext() => {
-        'source_id': identifier,
-        'display_name': displayName,
-        'source_uri': sourceUri,
-        'mime_type': mimeType,
+        // The model receives the stable index/extraction identity and the
+        // extracted text only. The local URI and filename remain UI metadata.
+        'index_id': identifier,
         'content_type': contentType,
         if (page != null) 'page': page,
         'snippet': snippet,

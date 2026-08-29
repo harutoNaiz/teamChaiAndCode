@@ -12,11 +12,13 @@ class LocalInferenceService {
     required String modelPath,
     required String prompt,
     int maxOutputTokens = 512,
+    bool enableThinking = false,
   }) async {
     final result = await _channel.invokeMethod<dynamic>('generate', {
       'modelPath': modelPath,
       'prompt': prompt,
       'maxOutputTokens': maxOutputTokens,
+      'enableThinking': enableThinking,
     });
     if (result is Map) {
       final text = result['text']?.toString().trim() ?? '';

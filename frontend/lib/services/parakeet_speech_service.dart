@@ -43,7 +43,7 @@ class ParakeetSpeechService {
     'exprt': 'export',
   };
 
-  /// Starts speech recording entry point.
+  /// Starts speech recording entry point — not yet implemented.
   Stream<String> startListening({
     required Function(String finalizedText) onFinalResult,
     required Function(String interimText) onInterimResult,
@@ -71,6 +71,18 @@ class ParakeetSpeechService {
       normalized = normalized[0].toUpperCase() + normalized.substring(1);
     }
     return normalized;
+  }
+
+  /// Android recognizers occasionally prepend a transport label or blank line
+  /// to the recognized phrase. Those labels must never become chat content.
+  String _cleanRecognitionText(String rawInput) {
+    var cleaned = rawInput.trim();
+    cleaned = cleaned.replaceFirst(
+      RegExp(r'^(transcript|recognized\s+words?|speech|result)\s*:\s*',
+          caseSensitive: false),
+      '',
+    );
+    return cleaned.trim();
   }
 
   void stopListening() {

@@ -145,7 +145,10 @@ class AIModelConfig {
   ];
 
   static List<AIModelConfig> availableModels = [
-    ...localModels,
+    // Gemma 4 E4B Lite is the default local target for device testing.
+    localModels[2],
+    localModels[0],
+    localModels[1],
     ...defaultFreeOpenRouterModels,
   ];
 }
