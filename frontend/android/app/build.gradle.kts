@@ -4,6 +4,11 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+dependencies {
+    implementation("androidx.appsearch:appsearch:1.1.0")
+    implementation("androidx.appsearch:appsearch-local-storage:1.1.0")
+}
+
 android {
     namespace = "com.example.team_chai_and_code"
     compileSdk = flutter.compileSdkVersion
