@@ -4,6 +4,7 @@ import '../models/ai_model_config.dart';
 import '../services/chat_storage_service.dart';
 import '../services/agent_service.dart';
 import '../theme/app_theme.dart';
+import 'model_selector_sheet.dart';
 
 class ChatDrawer extends StatefulWidget {
   final String activeSessionId;
@@ -154,135 +155,12 @@ class _ChatDrawerState extends State<ChatDrawer> {
     );
   }
 
-  void _showApiKeyDialog() {
-    final controller = TextEditingController(text: AgentService.instance.openRouterApiKey);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('OpenRouter API Key'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Enter your OpenRouter key to connect DeepSeek, Llama 3.3, Claude 3.5, or Gemini directly:',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              obscureText: true,
-              decoration: const InputDecoration(
-                hintText: 'sk-or-v1-...',
-                prefixIcon: Icon(Icons.vpn_key_outlined, size: 18),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              await AgentService.instance.setOpenRouterApiKey(controller.text);
-              setState(() {});
-              if (ctx.mounted) {
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('OpenRouter API Key saved!')),
-                );
-              }
-            },
-            child: const Text('Save Key'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showModelSelectionModal() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: isDark ? AppTheme.darkCard : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.withOpacity(0.4),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Select OpenRouter / AI Engine',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                ...AIModelConfig.availableModels.map((model) {
-                  final isSelected = model.id == widget.currentModel.id;
-                  return ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                    leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: isSelected ? AppTheme.brandAccent.withOpacity(0.15) : Colors.transparent,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        model.isLocal ? Icons.memory_rounded : Icons.cloud_outlined,
-                        color: isSelected ? AppTheme.brandAccent : Colors.grey,
-                      ),
-                    ),
-                    title: Row(
-                      children: [
-                        Text(model.name, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: model.isLocal ? Colors.purple.withOpacity(0.15) : Colors.blue.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            model.badge,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: model.isLocal ? Colors.purpleAccent : Colors.blueAccent,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    subtitle: Text(model.description, style: const TextStyle(fontSize: 12)),
-                    trailing: isSelected ? const Icon(Icons.check_circle, color: AppTheme.brandAccent, size: 20) : null,
-                    onTap: () {
-                      widget.onSelectModel(model);
-                      Navigator.pop(ctx);
-                    },
-                  );
-                }),
-              ],
-            ),
-          ),
-        );
-      },
+    Navigator.pop(context); // close drawer first
+    ModelSelectorSheet.show(
+      context,
+      currentModel: widget.currentModel,
+      onSelectModel: widget.onSelectModel,
     );
   }
 
@@ -569,7 +447,7 @@ class _ChatDrawerState extends State<ChatDrawer> {
 
                   // OpenRouter API Key Setting
                   InkWell(
-                    onTap: _showApiKeyDialog,
+                    onTap: _showModelSelectionModal,
                     borderRadius: BorderRadius.circular(8),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
@@ -578,7 +456,7 @@ class _ChatDrawerState extends State<ChatDrawer> {
                           Icon(Icons.key_rounded, size: 16, color: hasApiKey ? AppTheme.brandAccent : Colors.grey),
                           const SizedBox(width: 8),
                           Text(
-                            hasApiKey ? 'OpenRouter Key (Active)' : 'Set OpenRouter Key',
+                            hasApiKey ? 'OpenRouter Key (Active)' : 'Configure OpenRouter & Local Models',
                             style: TextStyle(
                               fontSize: 12,
                               color: hasApiKey ? AppTheme.brandAccent : (isDark ? AppTheme.darkTextSecondary : Colors.black54),
