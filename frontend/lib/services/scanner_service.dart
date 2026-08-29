@@ -35,7 +35,8 @@ class ScannerService {
   /// Picks a folder on Android via SAF and indexes all discovered documents/photos.
   Future<ScanSourceResult> pickAndScanFolder() async {
     try {
-      final rawResult = await _scannerChannel.invokeMapMethod<String, dynamic>('pickFolder');
+      final rawResult =
+          await _scannerChannel.invokeMapMethod<String, dynamic>('pickFolder');
       if (rawResult == null) {
         return ScanSourceResult(status: 'cancelled');
       }
@@ -44,9 +45,8 @@ class ScannerService {
       final uri = rawResult['uri'] as String?;
       final rawRecords = rawResult['records'] as List<dynamic>? ?? [];
 
-      final records = rawRecords
-          .map((r) => Map<String, dynamic>.from(r as Map))
-          .toList();
+      final records =
+          rawRecords.map((r) => Map<String, dynamic>.from(r as Map)).toList();
 
       if (uri != null) {
         await _saveScannedSource(uri);
@@ -74,7 +74,8 @@ class ScannerService {
   /// Picks a single document or photo on Android via SAF and runs OCR / indexing.
   Future<ScanSourceResult> pickAndScanDocument() async {
     try {
-      final rawResult = await _scannerChannel.invokeMapMethod<String, dynamic>('pickDocument');
+      final rawResult = await _scannerChannel
+          .invokeMapMethod<String, dynamic>('pickDocument');
       if (rawResult == null) {
         return ScanSourceResult(status: 'cancelled');
       }
@@ -83,9 +84,8 @@ class ScannerService {
       final uri = rawResult['uri'] as String?;
       final rawRecords = rawResult['records'] as List<dynamic>? ?? [];
 
-      final records = rawRecords
-          .map((r) => Map<String, dynamic>.from(r as Map))
-          .toList();
+      final records =
+          rawRecords.map((r) => Map<String, dynamic>.from(r as Map)).toList();
 
       return ScanSourceResult(
         status: status,
@@ -103,18 +103,39 @@ class ScannerService {
   /// Scans a specific content URI on demand.
   Future<List<Map<String, dynamic>>> scanUri(String uri) async {
     try {
-      final rawResults = await _scannerChannel.invokeListMethod<dynamic>('scanUri', {'uri': uri}) ?? [];
-      return rawResults.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+      final rawResults = await _scannerChannel
+              .invokeListMethod<dynamic>('scanUri', {'uri': uri}) ??
+          [];
+      return rawResults
+          .map((r) => Map<String, dynamic>.from(r as Map))
+          .toList();
     } catch (e) {
       debugPrint('ScannerService.scanUri error: $e');
       return [];
     }
   }
 
+  /// Runs the shared ingestion pipeline across every persisted SAF grant.
+  /// This is also the user-triggered burst-index operation.
+  Future<List<Map<String, dynamic>>> scanPersistedSources() async {
+    try {
+      final rawResults =
+          await _scannerChannel.invokeListMethod<dynamic>('scanPersisted') ??
+              [];
+      return rawResults
+          .map((record) => Map<String, dynamic>.from(record as Map))
+          .toList(growable: false);
+    } on PlatformException catch (error) {
+      debugPrint('ScannerService.scanPersistedSources error: $error');
+      return const [];
+    }
+  }
+
   /// Opens the original source photo or document in the system viewer.
   Future<bool> openSourceUri(String uri) async {
     try {
-      final result = await _scannerChannel.invokeMapMethod<String, dynamic>('openUri', {'uri': uri});
+      final result = await _scannerChannel
+          .invokeMapMethod<String, dynamic>('openUri', {'uri': uri});
       return result?['opened'] == true;
     } catch (e) {
       // Fallback via index channel

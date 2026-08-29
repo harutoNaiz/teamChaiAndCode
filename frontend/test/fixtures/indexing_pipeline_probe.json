@@ -1,0 +1,69 @@
+{
+  "text_ingest": {
+    "id": "idx-text-001",
+    "source_uri": "content://com.android.providers.downloads.documents/document/42",
+    "display_name": "bucket-list.txt",
+    "mime_type": "text/plain",
+    "content_type": "text",
+    "transcription": "Paris is on the bucket list.",
+    "modified_at": 1788048000000
+  },
+  "ocr_ingest": {
+    "id": "idx-ocr-001",
+    "source_uri": "content://media/external/images/media/99",
+    "display_name": "receipt.jpg",
+    "mime_type": "image/jpeg",
+    "content_type": "image_ocr",
+    "transcription": "Invoice total INR 1,250",
+    "ocr_confidence": 0.94,
+    "modified_at": 1788048001000
+  },
+  "chat_ingest": {
+    "id": "chat-session-001",
+    "source_uri": "chat://session/session-001",
+    "display_name": "Travel planning",
+    "mime_type": "text/markdown",
+    "content_type": "chat_memory",
+    "transcription": "user: Add Paris to my bucket list.",
+    "modified_at": 1788048002000
+  },
+  "search_request": {
+    "q": "Where is my bucket list?",
+    "limit": 5,
+    "content_types": ["text", "pdf_ocr"]
+  },
+  "search_response": [
+    {
+      "identifier": "idx-text-001",
+      "source_uri": "content://com.android.providers.downloads.documents/document/42",
+      "open_uri": "content://com.android.providers.downloads.documents/document/42",
+      "display_name": "bucket-list.txt",
+      "mime_type": "text/plain",
+      "content_type": "text",
+      "transcription": "Paris is on the bucket list.",
+      "snippet": "Paris is on the bucket list.",
+      "modified_at": 1788048000000,
+      "score": 0.93
+    }
+  ],
+  "expected_model_context": {
+    "index_id": "idx-text-001",
+    "content_type": "text",
+    "snippet": "Paris is on the bucket list."
+  },
+  "csv_export_response": {
+    "path": "/data/user/0/com.example.team_chai_and_code/files/catalog/catalog_export.csv",
+    "records": 3
+  },
+  "background_scan_response": [
+    {
+      "id": "idx-text-001",
+      "source_uri": "content://com.android.providers.downloads.documents/document/42",
+      "display_name": "bucket-list.txt",
+      "mime_type": "text/plain",
+      "content_type": "text",
+      "transcription": "Paris is on the bucket list.",
+      "modified_at": 1788048000000
+    }
+  ]
+}

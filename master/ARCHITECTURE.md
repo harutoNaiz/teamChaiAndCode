@@ -138,7 +138,7 @@ checks.
 
 ## Indexing policy
 
-* **Incremental indexing:** Android-compatible scheduled work observes only
+* **Incremental indexing:** Android WorkManager scheduled work observes only
   user-authorised SAF trees, MediaStore sources, recordings made by this app,
   and local chat storage. It is not a desktop-style cron job. It detects new or
   changed source versions and queues the shared extraction pipeline.
@@ -302,7 +302,7 @@ preview manifest.
 | Chat context to LLM | Present with a bounded full-session builder: all active turns are sent when they fit the budget; older turns retain stable-ID transcript context when compacted. Model/device verification remains pending. |
 | Chat-memory index | Present for stored sessions and new agent responses through `chat_memory` records. Cross-session privacy policy/filtering and device verification remain pending. |
 | OCR/scanner/PDF extraction | SAF picker and native bridge are present. Images and rendered PDF pages use local ML Kit text recognition; failures and empty extraction return no indexed record. It still lacks Android device/benchmark evidence, recursive managed-folder scanning, and production background scheduling. |
-| Background watcher and burst index | Not implemented. |
+| Background watcher and burst index | Core ingestion is present: persisted SAF trees are scanned recursively on cold start and by a unique periodic WorkManager job using the shared extraction/indexing pipeline. Foreground progress, pause, and cancel controls remain pending. |
 | Parakeet audio transcription | UI/service scaffold only. It reports that recording/transcription is unavailable rather than fabricating a transcript; no recorder or Parakeet runtime is wired. |
 | Upload control | The visible upload affordance and attachment parameter have been removed. Source files are selected through Android's authorised picker and are not sent to the cloud model. |
 | Actions (notes, files, messages, alarms) | Note-save, reminder creation, SAF move, SAF rename, OCR dispatch, and indexed upsert are wired through typed bridges with explicit results. Soft-delete/restore, organize, and WhatsApp still require capability adapters and remain unavailable. |

@@ -32,6 +32,8 @@ class MainActivity : FlutterActivity() {
         deviceToolsBridge = DeviceToolsBridge(this)
         deviceToolsChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "teamChaiAndCode/device_tools")
         deviceToolsChannel.setMethodCallHandler(deviceToolsBridge)
+
+        LocalIndexWorker.schedule(applicationContext)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

@@ -26,9 +26,16 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class LocalScannerBridge(
-    private val activity: Activity,
+    private val appContext: Context,
+    private val activity: Activity?,
     private val indexBridge: AppSearchIndexBridge
 ) : MethodChannel.MethodCallHandler, PluginRegistry.ActivityResultListener {
+
+    constructor(activity: Activity, indexBridge: AppSearchIndexBridge) :
+        this(activity.applicationContext, activity, indexBridge)
+
+    constructor(context: Context, indexBridge: AppSearchIndexBridge) :
+        this(context.applicationContext, null, indexBridge)
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -38,6 +45,10 @@ class LocalScannerBridge(
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "pickFolder" -> {
+                val host = activity ?: run {
+                    result.error("activity_unavailable", "Folder picker requires a foreground activity", null)
+                    return
+                }
                 pendingResult = result
                 pendingRequestCode = REQUEST_CODE_PICK_FOLDER
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
@@ -46,9 +57,13 @@ class LocalScannerBridge(
                                 Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
                     )
                 }
-                activity.startActivityForResult(intent, REQUEST_CODE_PICK_FOLDER)
+                host.startActivityForResult(intent, REQUEST_CODE_PICK_FOLDER)
             }
             "pickDocument" -> {
+                val host = activity ?: run {
+                    result.error("activity_unavailable", "Document picker requires a foreground activity", null)
+                    return
+                }
                 pendingResult = result
                 pendingRequestCode = REQUEST_CODE_PICK_DOCUMENT
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -63,7 +78,7 @@ class LocalScannerBridge(
                                 Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
                     )
                 }
-                activity.startActivityForResult(intent, REQUEST_CODE_PICK_DOCUMENT)
+                host.startActivityForResult(intent, REQUEST_CODE_PICK_DOCUMENT)
             }
             "scanUri" -> {
                 val uriString = call.argument<String>("uri")
@@ -82,6 +97,14 @@ class LocalScannerBridge(
                     }
                 }
             }
+            "scanPersisted" -> executor.execute {
+                try {
+                    val scanResults = scanPersistedSources()
+                    mainHandler.post { result.success(scanResults) }
+                } catch (e: Exception) {
+                    mainHandler.post { result.error("scan_error", e.message, null) }
+                }
+            }
             "openUri" -> {
                 val uriString = call.argument<String>("uri")
                 if (uriString.isNullOrBlank()) {
@@ -93,7 +116,7 @@ class LocalScannerBridge(
                         data = Uri.parse(uriString)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
-                    activity.startActivity(intent)
+                    (activity ?: appContext).startActivity(intent)
                     result.success(mapOf("opened" to true, "uri" to uriString))
                 } catch (e: Exception) {
                     result.error("open_error", "Cannot open source URI: ${e.message}", null)
@@ -118,7 +141,7 @@ class LocalScannerBridge(
         val uri = data.data!!
         try {
             val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            activity.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            appContext.contentResolver.takePersistableUriPermission(uri, takeFlags)
         } catch (_: Exception) {
             // Some providers don't support persistable flags
         }
@@ -144,40 +167,17 @@ class LocalScannerBridge(
         return true
     }
 
-    private fun scanAndIndexUri(uri: Uri): List<Map<String, Any?>> {
+    fun scanPersistedSources(): List<Map<String, Any?>> =
+        appContext.contentResolver.persistedUriPermissions
+            .filter { it.isReadPermission }
+            .flatMap { permission -> scanAndIndexUri(permission.uri) }
+
+    fun scanAndIndexUri(uri: Uri): List<Map<String, Any?>> {
         val results = mutableListOf<Map<String, Any?>>()
-        val context = activity.applicationContext
-        val contentResolver = context.contentResolver
+        val contentResolver = appContext.contentResolver
 
         if (DocumentsContract.isTreeUri(uri)) {
-            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-                uri,
-                DocumentsContract.getTreeDocumentId(uri)
-            )
-            val projection = arrayOf(
-                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                DocumentsContract.Document.COLUMN_MIME_TYPE,
-                DocumentsContract.Document.COLUMN_LAST_MODIFIED
-            )
-
-            var cursor: Cursor? = null
-            try {
-                cursor = contentResolver.query(childrenUri, projection, null, null, null)
-                while (cursor != null && cursor.moveToNext()) {
-                    val docId = cursor.getString(0)
-                    val displayName = cursor.getString(1) ?: "unnamed_document"
-                    val mimeType = cursor.getString(2) ?: "application/octet-stream"
-                    val lastModified = cursor.getLong(3)
-                    val documentUri = DocumentsContract.buildDocumentUriUsingTree(uri, docId)
-
-                    if (mimeType != DocumentsContract.Document.MIME_TYPE_DIR) {
-                        results.addAll(processDocument(documentUri, displayName, mimeType, lastModified))
-                    }
-                }
-            } finally {
-                cursor?.close()
-            }
+            scanTree(uri, DocumentsContract.getTreeDocumentId(uri), results)
         } else {
             // Single document
             var displayName = "document"
@@ -201,6 +201,34 @@ class LocalScannerBridge(
         return results
     }
 
+    private fun scanTree(
+        treeUri: Uri,
+        parentDocumentId: String,
+        results: MutableList<Map<String, Any?>>,
+    ) {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
+        appContext.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val documentId = cursor.getString(0)
+                val displayName = cursor.getString(1) ?: "unnamed_document"
+                val mimeType = cursor.getString(2) ?: "application/octet-stream"
+                val modifiedAt = cursor.getLong(3)
+                if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    scanTree(treeUri, documentId, results)
+                } else {
+                    val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+                    results.addAll(processDocument(documentUri, displayName, mimeType, modifiedAt))
+                }
+            }
+        }
+    }
+
     private fun processDocument(
         uri: Uri,
         displayName: String,
@@ -208,8 +236,7 @@ class LocalScannerBridge(
         lastModified: Long
     ): List<Map<String, Any?>> {
         val records = mutableListOf<Map<String, Any?>>()
-        val context = activity.applicationContext
-        val contentResolver = context.contentResolver
+        val contentResolver = appContext.contentResolver
 
         if (mimeType.startsWith("image/")) {
             // Image OCR
@@ -259,7 +286,7 @@ class LocalScannerBridge(
         var pfd: ParcelFileDescriptor? = null
         var renderer: PdfRenderer? = null
         try {
-            pfd = activity.contentResolver.openFileDescriptor(uri, "r")
+            pfd = appContext.contentResolver.openFileDescriptor(uri, "r")
             if (pfd != null) {
                 renderer = PdfRenderer(pfd)
                 val pageCount = renderer.pageCount
@@ -310,7 +337,7 @@ class LocalScannerBridge(
 
     private fun readBytes(uri: Uri): ByteArray? {
         return try {
-            activity.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
         } catch (_: Exception) {
             null
         }

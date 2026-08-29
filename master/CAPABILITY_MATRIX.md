@@ -8,10 +8,10 @@ means the boundary exists but must not be advertised as executable.
 | --- | --- | --- |
 | Lexical + semantic local search | Wired | AppSearch `team_chai_local_index`; source URI and extraction are returned. |
 | Durable extraction catalog | Wired | App-private `local_catalog_v1` SharedPreferences; stale unit replacement. |
-| CSV audit export | Wired | `local_index.exportCsv` → `<filesDir>/catalog/catalog_export.csv`; atomic write, never model input. |
+| CSV mapping | Wired | Every successful index write atomically refreshes `<filesDir>/catalog/catalog_export.csv` with index ID, URI, and extracted context. |
 | Chat-memory indexing | Wired | Stored session messages and assistant responses use `chat_memory` records. |
-| OCR/PDF ingestion | Wired for selected SAF items | Native ML Kit/scanner bridge; recursive watcher and scheduled background scan remain. |
-| Burst/background indexing | Contract only | Worker/progress/resume/cancellation still need WorkManager and managed-folder permission. |
+| OCR/PDF ingestion | Wired for authorized SAF items | Native ML Kit/scanner bridge with recursive tree traversal. |
+| Burst/background indexing | Wired core | User-selected trees retain SAF grants; cold start and periodic WorkManager passes use the same pipeline. UI progress/pause/cancel remains. |
 | Parakeet transcription | Contract only | Recorder/runtime adapter is not installed; UI reports unavailable. |
 | Natural-language file search | Wired for indexed content | Agent routes file-search prompts to retrieval; metadata/path predicates need a SAF catalog query adapter. |
 | Reminder creation | Wired | Opens a Calendar insert confirmation through Android. |

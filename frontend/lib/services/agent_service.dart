@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,6 +16,7 @@ import 'retrieval_tool.dart';
 import 'local_inference_service.dart';
 import 'agent_tool_catalog.dart';
 import 'device_tools_service.dart';
+import 'scanner_service.dart';
 
 enum AgentBackendMode { openRouterDirect, flaskBackend, localOnDevice }
 
@@ -56,16 +58,24 @@ class AgentService {
   Future<void> init() async {
     // Download jobs are persisted independently of the model sheet lifecycle.
     await LocalModelManagerService.instance.resumePendingDownloads();
+    // Cold-start incremental pass. Android WorkManager handles later periodic
+    // passes even after the Flutter activity leaves the foreground.
+    unawaited(ScannerService.instance.scanPersistedSources());
     try {
       final prefs = await SharedPreferences.getInstance();
       openRouterApiKey = prefs.getString(_apiKeyStorageKey) ?? '';
     } catch (_) {}
-    try {
-      await _chatMemoryIndex
-          .syncSessions(await ChatStorageService.instance.getSessions());
-    } catch (error) {
-      debugPrint('Initial chat-memory backfill failed: $error');
-    }
+    // Indexing must never block the first Flutter frame. AppSearch/embedder
+    // warm-up can be slow on a cold device, so retain the backfill but run it
+    // independently from startup.
+    unawaited(() async {
+      try {
+        await _chatMemoryIndex
+            .syncSessions(await ChatStorageService.instance.getSessions());
+      } catch (error) {
+        debugPrint('Initial chat-memory backfill failed: $error');
+      }
+    }());
   }
 
   Future<void> setOpenRouterApiKey(String key) async {

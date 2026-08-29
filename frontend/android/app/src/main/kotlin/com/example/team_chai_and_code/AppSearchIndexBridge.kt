@@ -186,7 +186,13 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
             .putString(sourceKey, record.id)
             .putString(identifierKey, sourceKey)
             .apply()
-        return mapOf("id" to record.id, "indexed" to true, "open_uri" to record.sourceUri)
+        val csv = catalog.exportCsv()
+        return mapOf(
+            "id" to record.id,
+            "indexed" to true,
+            "open_uri" to record.sourceUri,
+            "catalog_csv" to csv["path"],
+        )
     }
 
     private fun search(request: SearchRequest): List<Map<String, Any?>> {
