@@ -151,6 +151,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() {
       _currentSession!.addMessage(userMessage);
+      if (_currentSession!.title == 'New Chat' ||
+          _currentSession!.title == 'Chat') {
+        final compact = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+        _currentSession!.title = compact.length > 48
+            ? '${compact.substring(0, 48).trimRight()}…'
+            : compact;
+      }
       _isGenerating = true;
     });
     _scrollToBottom();

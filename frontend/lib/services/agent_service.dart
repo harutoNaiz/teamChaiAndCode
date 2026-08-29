@@ -128,6 +128,47 @@ class AgentService {
     return dynamicFreeModels;
   }
 
+  /// Returns the complete provider catalog. The UI starts with free models,
+  /// then calls this only when the user searches for a specific model.
+  Future<List<AIModelConfig>> fetchAllOpenRouterModels() async {
+    try {
+      final headers = <String, String>{};
+      if (openRouterApiKey.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $openRouterApiKey';
+      }
+      final response = await http
+          .get(Uri.parse('https://openrouter.ai/api/v1/models'),
+              headers: headers)
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) return dynamicFreeModels;
+      final data = (jsonDecode(response.body)['data'] as List<dynamic>? ?? [])
+          .whereType<Map<String, dynamic>>();
+      return data
+          .map((item) {
+            final pricing = item['pricing'] as Map<String, dynamic>?;
+            final id = item['id'] as String? ?? '';
+            final free = id.contains(':free') ||
+                (pricing?['prompt'] == '0' || pricing?['prompt'] == 0) &&
+                    (pricing?['completion'] == '0' ||
+                        pricing?['completion'] == 0);
+            return AIModelConfig(
+              id: 'or-$id',
+              openRouterModelId: id,
+              name: item['name'] as String? ?? id,
+              description: item['description'] as String? ?? 'OpenRouter model',
+              provider: ModelProvider.openRouter,
+              isFree: free,
+              badge: free ? 'Free Tier' : 'Paid • API key required',
+            );
+          })
+          .where((model) => model.openRouterModelId.isNotEmpty)
+          .toList();
+    } catch (error) {
+      debugPrint('Unable to fetch complete OpenRouter catalog: $error');
+      return dynamicFreeModels;
+    }
+  }
+
   Future<ChatMessage> sendMessage({
     required ChatSession session,
     required String prompt,

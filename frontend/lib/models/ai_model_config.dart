@@ -30,14 +30,41 @@ class AIModelConfig {
 
   static const List<AIModelConfig> localModels = [
     AIModelConfig(
+      id: 'litert-community/qwen3-4b-mixed-int4',
+      name: 'Qwen3 4B (LiteRT INT4)',
+      description:
+          'Strong local reasoning model; mixed INT4 artifact for on-device inference',
+      provider: ModelProvider.localOnDevice,
+      isLocal: true,
+      isFree: true,
+      badge: 'Local INT4 • 2.6 GB',
+      downloadUrl:
+          'https://huggingface.co/litert-community/Qwen3-4B/resolve/main/qwen3_4b_mixed_int4.litertlm',
+      filename: 'qwen3_4b_mixed_int4.litertlm',
+    ),
+    AIModelConfig(
+      id: 'litert-community/qwen2.5-1.5b-q8',
+      name: 'Qwen2.5 1.5B (LiteRT Q8)',
+      description: 'Fast lightweight local model for quick chat and routing',
+      provider: ModelProvider.localOnDevice,
+      isLocal: true,
+      isFree: true,
+      badge: 'Local Q8 • 1.6 GB',
+      downloadUrl:
+          'https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm',
+      filename: 'qwen2.5-1.5b-q8.litertlm',
+    ),
+    AIModelConfig(
       id: 'litert-community/gemma-4-E4B-it-litert-lm',
       name: 'Gemma 4 E4B (LiteRT LM)',
-      description: 'On-device open-source model optimized for mobile NPU via LiteRT',
+      description:
+          'On-device open-source model optimized for mobile NPU via LiteRT',
       provider: ModelProvider.localOnDevice,
       isLocal: true,
       isFree: true,
       badge: 'Local LiteRT',
-      downloadUrl: 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm',
+      downloadUrl:
+          'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm',
       filename: 'gemma-4-E4B-it.litertlm',
     ),
   ];
