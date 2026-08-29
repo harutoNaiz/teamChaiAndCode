@@ -397,134 +397,31 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildEmptyState(BuildContext context, bool isDark) {
     return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Center Logo / Sparkle Icon
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF1F3F5),
-                shape: BoxShape.circle,
-                border: Border.all(color: AppTheme.brandAccent.withOpacity(0.4), width: 1.5),
-              ),
-              child: const Center(
-                child: Icon(Icons.auto_awesome, size: 30, color: AppTheme.brandAccent),
-              ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF1F3F5),
+              shape: BoxShape.circle,
+              border: Border.all(color: AppTheme.brandAccent.withOpacity(0.4), width: 1.5),
             ),
-            const SizedBox(height: 18),
-            Text(
-              'What can I do for you today?',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
-              ),
+            child: const Center(
+              child: Icon(Icons.auto_awesome, size: 26, color: AppTheme.brandAccent),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Permission-controlled phone agent with unified search and tools',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: isDark ? AppTheme.darkTextSecondary : const Color(0xFF6B7280),
-              ),
-            ),
-            const SizedBox(height: 28),
-
-            // 4 Feature Capability Cards
-            _buildFeatureCard(
-              isDark,
-              icon: Icons.picture_as_pdf_rounded,
-              iconColor: Colors.redAccent,
-              title: 'Find Internship Offer Letter',
-              prompt: 'Find my internship offer letter PDF, summarize the stipends & joining date, and send it to Rahul on WhatsApp.',
-            ),
-            const SizedBox(height: 10),
-            _buildFeatureCard(
-              isDark,
-              icon: Icons.receipt_long_rounded,
-              iconColor: Colors.blueAccent,
-              title: 'Scan Receipt & Calculate Expense',
-              prompt: 'Extract the items and total amount from the restaurant bill screenshot in my gallery.',
-            ),
-            const SizedBox(height: 10),
-            _buildFeatureCard(
-              isDark,
-              icon: Icons.folder_zip_rounded,
-              iconColor: Colors.orangeAccent,
-              title: 'Organize Phone Storage',
-              prompt: 'My downloads folder is full of random files. Can you organize them into folders by file type?',
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFeatureCard(
-    bool isDark, {
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String prompt,
-  }) {
-    return InkWell(
-      onTap: () => _handleSendMessage(prompt, null, null),
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.darkCard : Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB),
-            width: 1,
           ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, size: 18, color: iconColor),
+          const SizedBox(height: 16),
+          Text(
+            'What can I do for you today?',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    prompt,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark ? AppTheme.darkTextSecondary : const Color(0xFF6B7280),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Icon(
-              Icons.arrow_forward_ios_rounded,
-              size: 13,
-              color: isDark ? AppTheme.darkTextSecondary : Colors.black38,
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

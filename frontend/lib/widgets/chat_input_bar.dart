@@ -178,56 +178,13 @@ class _ChatInputBarState extends State<ChatInputBar> {
     final hasText = _controller.text.trim().isNotEmpty || _stagedAttachmentName != null;
 
     return Container(
-      padding: const EdgeInsets.only(left: 10, right: 10, bottom: 12, top: 4),
+      padding: const EdgeInsets.only(left: 10, right: 10, bottom: 12, top: 8),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkBg : Colors.white,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Quick suggestion horizontal pill bar
-          SizedBox(
-            height: 32,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              itemCount: _quickSuggestions.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (ctx, idx) {
-                final suggestion = _quickSuggestions[idx];
-                return GestureDetector(
-                  onTap: () {
-                    // Extract clean prompt
-                    final prompt = suggestion.substring(suggestion.indexOf(' ') + 1);
-                    _controller.text = prompt;
-                    _handleSend();
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF1F3F5),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB),
-                        width: 0.8,
-                      ),
-                    ),
-                    child: Center(
-                      child: Text(
-                        suggestion,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark ? AppTheme.darkTextSecondary : const Color(0xFF4B5563),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 8),
 
           // Attachment staging preview if selected
           if (_stagedAttachmentName != null) ...[
