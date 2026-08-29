@@ -18,7 +18,7 @@ import 'device_tools_service.dart';
 
 enum AgentBackendMode { openRouterDirect, flaskBackend, localOnDevice }
 
-enum _AgentIntent { generalChat, fileSearch, toolRequest }
+enum AgentIntent { generalChat, fileSearch, toolRequest }
 
 /// Coordinates model selection with the typed, provenance-preserving retrieval tool.
 class AgentService {
@@ -198,8 +198,9 @@ class AgentService {
   }) async {
     // Classify before touching the local index. General conversation (including
     // greetings) must not incur a memory/index lookup.
-    final intent = _classifyIntent(prompt);
-    final needsRetrieval = intent == _AgentIntent.fileSearch;
+    final intent = classifyIntent(prompt);
+    debugPrint('AGENT_ROUTE intent=${intent.name} prompt="${prompt.trim()}"');
+    final needsRetrieval = intent == AgentIntent.fileSearch;
     List<RetrievedEvidence> evidence = const [];
     if (needsRetrieval) {
       try {
@@ -251,7 +252,7 @@ class AgentService {
       String prompt,
       AIModelConfig model,
       List<RetrievedEvidence> evidence,
-      _AgentIntent intent) async {
+      AgentIntent intent) async {
     final filename = model.filename ?? 'gemma-4-E4B-it.litertlm';
     final downloaded = await LocalModelManagerService.instance
         .isModelDownloaded(model.id, filename);
@@ -268,15 +269,17 @@ class AgentService {
     try {
       final modelPath =
           await LocalModelManagerService.instance.getModelFilePath(filename);
+      debugPrint(
+          'AGENT_MODEL_START model=${model.id} tool_mode=${intent == AgentIntent.toolRequest}');
       final conversation = _contextService.build(session);
       final history = conversation.messages
           .map((message) => '${message['role']}: ${message['content']}')
           .join('\n');
       final contextualPrompt = [
         'You are teamChai, a helpful on-device assistant.',
-        if (intent == _AgentIntent.toolRequest)
+        if (intent == AgentIntent.toolRequest)
           'This is a tool request. Use reasoning privately to select the safest tool. Return a single JSON object with keys tool, arguments, confirmation_required, and user_message. Never execute a destructive operation without confirmation.',
-        if (intent == _AgentIntent.toolRequest)
+        if (intent == AgentIntent.toolRequest)
           'Available tools:\n${AgentToolCatalog.asPrompt()}',
         if (history.isNotEmpty) 'Conversation history:\n$history',
         'Current user request:\n$prompt',
@@ -284,11 +287,11 @@ class AgentService {
       final response = await _localInference.generate(
         modelPath: modelPath,
         prompt: _promptWithEvidence(contextualPrompt, evidence),
-        enableThinking: intent == _AgentIntent.toolRequest,
+        enableThinking: intent == AgentIntent.toolRequest,
       );
-      final plannedAction = intent == _AgentIntent.toolRequest
-          ? _parseToolAction(response)
-          : null;
+      debugPrint('AGENT_MODEL_DONE model=${model.id} chars=${response.length}');
+      final plannedAction =
+          intent == AgentIntent.toolRequest ? _parseToolAction(response) : null;
       final message = ChatMessage(
         id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
         role: MessageRole.assistant,
@@ -365,19 +368,19 @@ class AgentService {
     }
   }
 
-  _AgentIntent _classifyIntent(String prompt) {
+  AgentIntent classifyIntent(String prompt) {
     final normalized = prompt.trim();
-    if (normalized.isEmpty) return _AgentIntent.generalChat;
+    if (normalized.isEmpty) return AgentIntent.generalChat;
     final isToolRequest = RegExp(
             r'\b(create|set|add|remind|reminder|move|rename|delete|remove|organize|sort|restore|save|update|upsert)\b',
             caseSensitive: false)
         .hasMatch(normalized);
-    if (isToolRequest) return _AgentIntent.toolRequest;
+    if (isToolRequest) return AgentIntent.toolRequest;
     final isFileQuery = RegExp(
             r'\b(find|search|look up|show|list|document|file|pdf|photo|image|scan|aadhaar|receipt|ocr)\b',
             caseSensitive: false)
         .hasMatch(normalized);
-    return isFileQuery ? _AgentIntent.fileSearch : _AgentIntent.generalChat;
+    return isFileQuery ? AgentIntent.fileSearch : AgentIntent.generalChat;
   }
 
   AgentAction? _parseToolAction(String response) {
@@ -454,16 +457,20 @@ class AgentService {
       timestamp: DateTime.now());
 
   Future<bool> executeAction(AgentAction action) async {
+    debugPrint(
+        'AGENT_TOOL_START type=${action.type} parameters=${action.parameters}');
     action.status = ActionStatus.executing;
     try {
       final outcome =
           await _deviceTools.execute(action.type, action.parameters);
       action.result = outcome;
       action.status = ActionStatus.completed;
+      debugPrint('AGENT_TOOL_RESULT type=${action.type} result=$outcome');
       return true;
     } catch (error) {
       action.status = ActionStatus.failed;
       action.errorMessage = error.toString();
+      debugPrint('AGENT_TOOL_ERROR type=${action.type} error=$error');
       return false;
     }
   }
