@@ -51,16 +51,36 @@ class _ChatScreenState extends State<ChatScreen> {
           );
         }
 
-        if (sessions.isNotEmpty) {
+        if (sessions.isNotEmpty && sessions.first.messages.isEmpty) {
+          // Reuse a blank draft rather than creating duplicates on cold start.
           _currentSession = sessions.first;
+        } else if (sessions.isNotEmpty) {
+          // Exactly one fresh draft is created when the previous latest chat
+          // contains messages. Subsequent rebuilds do not enter this path.
+          _currentSession = ChatSession(
+            id: 'session-${DateTime.now().millisecondsSinceEpoch}',
+            title: 'New Chat',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            selectedModelId: _currentModel.id,
+          );
+          ChatStorageService.instance.saveSession(_currentSession!);
+          _scrollToBottom();
+        } else {
+          _currentSession = ChatSession(
+            id: 'session-${DateTime.now().millisecondsSinceEpoch}',
+            title: 'New Chat',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            selectedModelId: _currentModel.id,
+          );
+          ChatStorageService.instance.saveSession(_currentSession!);
           if (savedModelId == null) {
             _currentModel = AIModelConfig.availableModels.firstWhere(
               (m) => m.id == _currentSession!.selectedModelId,
               orElse: () => _currentModel,
             );
           }
-        } else {
-          _createNewChat();
         }
         _isLoading = false;
       });

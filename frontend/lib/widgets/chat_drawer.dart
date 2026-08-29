@@ -189,7 +189,7 @@ class _ChatDrawerState extends State<ChatDrawer> {
       child: SafeArea(
         child: Column(
           children: [
-            // Top Section: Search Bar & New Chat Button
+            // Top section: chat search. New chat is available in the AppBar.
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
               child: Column(
@@ -238,53 +238,6 @@ class _ChatDrawerState extends State<ChatDrawer> {
                             const EdgeInsets.symmetric(vertical: 10),
                       ),
                       onChanged: (val) => setState(() => _filterSessions(val)),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  InkWell(
-                    onTap: () {
-                      Navigator.pop(context);
-                      widget.onNewChat();
-                    },
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 11),
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF2F2F2F) : Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: isDark
-                              ? AppTheme.darkBorder
-                              : const Color(0xFFE5E7EB),
-                          width: 0.8,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.add_rounded,
-                              size: 20, color: AppTheme.brandAccent),
-                          const SizedBox(width: 10),
-                          Text(
-                            'New Chat',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: isDark
-                                  ? AppTheme.darkTextPrimary
-                                  : Colors.black87,
-                            ),
-                          ),
-                          const Spacer(),
-                          Icon(
-                            Icons.edit_square,
-                            size: 16,
-                            color: isDark
-                                ? AppTheme.darkTextSecondary
-                                : Colors.black45,
-                          ),
-                        ],
-                      ),
                     ),
                   ),
                 ],

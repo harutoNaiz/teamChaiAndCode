@@ -43,6 +43,8 @@ class AgentService {
   static const String _selectedModelKey = 'selected_ai_model_id_v1';
 
   Future<void> init() async {
+    // Download jobs are persisted independently of the model sheet lifecycle.
+    await LocalModelManagerService.instance.resumePendingDownloads();
     try {
       final prefs = await SharedPreferences.getInstance();
       openRouterApiKey = prefs.getString(_apiKeyStorageKey) ?? '';

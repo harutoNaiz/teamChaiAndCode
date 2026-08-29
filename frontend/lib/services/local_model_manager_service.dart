@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
 class DownloadProgress {
   final int bytesReceived;
@@ -25,20 +26,27 @@ class DownloadProgress {
   String get percentageText => '${(progress * 100).toStringAsFixed(1)}%';
   String get downloadedSizeText {
     final receivedMb = (bytesReceived / (1024 * 1024)).toStringAsFixed(1);
-    final totalMb = totalBytes > 0 ? (totalBytes / (1024 * 1024)).toStringAsFixed(1) : 'Unknown';
+    final totalMb = totalBytes > 0
+        ? (totalBytes / (1024 * 1024)).toStringAsFixed(1)
+        : 'Unknown';
     return '$receivedMb MB / $totalMb MB';
   }
 }
 
 class LocalModelManagerService {
-  static final LocalModelManagerService instance = LocalModelManagerService._internal();
+  static final LocalModelManagerService instance =
+      LocalModelManagerService._internal();
 
   LocalModelManagerService._internal();
 
-  final Map<String, StreamController<DownloadProgress>> _downloadControllers = {};
+  final Map<String, StreamController<DownloadProgress>> _downloadControllers =
+      {};
   final Map<String, http.Client> _activeClients = {};
+  final Map<String, String> _activeTempPaths = {};
+  final Set<String> _cancelledDownloads = {};
 
   static const String _storagePrefix = 'local_model_downloaded_';
+  static const String _jobPrefix = 'local_model_job_';
 
   Future<String> getModelsDirectoryPath() async {
     if (kIsWeb) return 'web_models';
@@ -106,6 +114,10 @@ class LocalModelManagerService {
     final controller = StreamController<DownloadProgress>.broadcast();
     _downloadControllers[modelId] = controller;
 
+    SharedPreferences.getInstance().then((prefs) => prefs.setString(
+        '$_jobPrefix$modelId',
+        jsonEncode({'url': downloadUrl, 'filename': filename})));
+
     _startDownload(modelId, downloadUrl, filename, controller);
 
     return controller.stream;
@@ -124,21 +136,25 @@ class LocalModelManagerService {
       final targetPath = await getModelFilePath(filename);
       final tempPath = '$targetPath.tmp';
 
+      final tempFile = File(tempPath);
+      _activeTempPaths[modelId] = tempPath;
+      final resumeAt = await tempFile.exists() ? await tempFile.length() : 0;
       final request = http.Request('GET', Uri.parse(downloadUrl));
+      if (resumeAt > 0) request.headers['Range'] = 'bytes=$resumeAt-';
       final response = await client.send(request);
 
       if (response.statusCode != 200 && response.statusCode != 206) {
         throw Exception('Server returned HTTP ${response.statusCode}');
       }
 
-      final totalBytes = response.contentLength ?? 0;
-      int receivedBytes = 0;
-
-      final tempFile = File(tempPath);
-      if (await tempFile.exists()) {
-        await tempFile.delete();
-      }
-      final sink = tempFile.openWrite();
+      final supportsResume = resumeAt > 0 && response.statusCode == 206;
+      final initialBytes = supportsResume ? resumeAt : 0;
+      final totalBytes = response.contentLength == null
+          ? 0
+          : response.contentLength! + initialBytes;
+      int receivedBytes = initialBytes;
+      final sink = tempFile.openWrite(
+          mode: supportsResume ? FileMode.append : FileMode.write);
 
       await for (final chunk in response.stream) {
         sink.add(chunk);
@@ -163,6 +179,7 @@ class LocalModelManagerService {
       await tempFile.rename(targetPath);
 
       final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('$_jobPrefix$modelId');
       await prefs.setBool('$_storagePrefix$modelId', true);
       await prefs.setString('$_storagePrefix${modelId}_path', targetPath);
 
@@ -173,6 +190,7 @@ class LocalModelManagerService {
         isCompleted: true,
       ));
     } catch (e) {
+      if (_cancelledDownloads.remove(modelId)) return;
       debugPrint('Download error for $modelId: $e');
       controller.add(DownloadProgress(
         bytesReceived: 0,
@@ -184,12 +202,15 @@ class LocalModelManagerService {
     } finally {
       client.close();
       _activeClients.remove(modelId);
+      _activeTempPaths.remove(modelId);
       _downloadControllers.remove(modelId);
       await controller.close();
     }
   }
 
   void cancelDownload(String modelId) {
+    _cancelledDownloads.add(modelId);
+    final tempPath = _activeTempPaths[modelId];
     if (_activeClients.containsKey(modelId)) {
       _activeClients[modelId]?.close();
       _activeClients.remove(modelId);
@@ -204,6 +225,34 @@ class LocalModelManagerService {
       ));
       _downloadControllers[modelId]?.close();
       _downloadControllers.remove(modelId);
+    }
+    SharedPreferences.getInstance().then((prefs) async {
+      await prefs.remove('$_jobPrefix$modelId');
+      if (tempPath != null) {
+        final temp = File(tempPath);
+        if (await temp.exists()) await temp.delete();
+      }
+    });
+  }
+
+  /// Resumes jobs persisted before the Flutter process was recreated.
+  Future<void> resumePendingDownloads() async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final key
+        in prefs.getKeys().where((key) => key.startsWith(_jobPrefix))) {
+      final modelId = key.substring(_jobPrefix.length);
+      try {
+        final job = jsonDecode(prefs.getString(key)!) as Map<String, dynamic>;
+        downloadModel(
+          modelId: modelId,
+          downloadUrl: job['url'] as String,
+          filename: job['filename'] as String,
+        );
+      } catch (error) {
+        debugPrint(
+            'Ignoring invalid persisted model download $modelId: $error');
+        await prefs.remove(key);
+      }
     }
   }
 
