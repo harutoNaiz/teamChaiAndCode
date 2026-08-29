@@ -2,8 +2,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/chat_session.dart';
-import '../models/chat_message.dart';
-import '../models/agent_action.dart';
 
 class ChatStorageService {
   static const String _storageKey = 'team_chai_chat_sessions_v1';
@@ -105,9 +103,5 @@ class ChatStorageService {
     } catch (e) {
       debugPrint('Error persisting sessions: $e');
     }
-  }
-
-  List<ChatSession> _getInitialSampleSessions() {
-    return [];
   }
 }
