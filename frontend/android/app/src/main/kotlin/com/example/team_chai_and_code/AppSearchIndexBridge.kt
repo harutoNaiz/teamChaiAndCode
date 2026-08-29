@@ -126,7 +126,9 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
                 confidence = record.ocrConfidence,
             )
         )
-        require(catalogResult !is CatalogWriteResult.Rejected) { catalogResult.reason }
+        if (catalogResult is CatalogWriteResult.Rejected) {
+            throw IllegalArgumentException(catalogResult.reason)
+        }
         if (catalogResult is CatalogWriteResult.Failed) {
             throw IllegalStateException(catalogResult.reason)
         }

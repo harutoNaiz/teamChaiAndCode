@@ -15,7 +15,9 @@ dependencies {
 android {
     namespace = "com.example.team_chai_and_code"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "26.1.10909125"
+    // Use the valid NDK already installed on the development machine. The
+    // previously pinned 26.1 copy is incomplete (missing source.properties).
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
