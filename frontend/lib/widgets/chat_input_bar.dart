@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../services/parakeet_speech_service.dart';
 
 /// V1: Clean chat input bar — text entry + mic (recording entry point only) + send.
 /// No attachment state, no fake paths, no simulated transcripts.
@@ -23,6 +24,7 @@ class ChatInputBar extends StatefulWidget {
 class _ChatInputBarState extends State<ChatInputBar> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  Stream<String>? _speechStream;
 
   @override
   void dispose() {
@@ -39,16 +41,36 @@ class _ChatInputBarState extends State<ChatInputBar> {
     setState(() {});
   }
 
-  /// V1: Mic is a recording entry point only.
-  /// It must NOT pretend a transcript exists.
   void _onMicTap() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Recording entry point — not yet implemented'),
-        duration: Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-      ),
+    if (ParakeetSpeechService.instance.isListening) {
+      ParakeetSpeechService.instance.stopListening();
+      setState(() {});
+      return;
+    }
+    _speechStream = ParakeetSpeechService.instance.startListening(
+      onFinalResult: (text) {
+        if (!mounted) return;
+        _controller.text = text;
+        _controller.selection = TextSelection.collapsed(offset: text.length);
+        setState(() {});
+      },
+      onInterimResult: (_) {
+        if (mounted) setState(() {});
+      },
+      onError: () {
+        if (!mounted) return;
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Microphone permission or speech recognition is unavailable.'),
+          behavior: SnackBarBehavior.floating,
+        ));
+      },
     );
+    _speechStream!.listen((_) {
+      if (mounted) setState(() {});
+    });
+    setState(() {});
   }
 
   @override
@@ -98,14 +120,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
                   decoration: InputDecoration(
                     hintText: 'Message teamChai…',
                     hintStyle: TextStyle(
-                      color: isDark
-                          ? AppTheme.darkTextSecondary
-                          : Colors.black38,
+                      color:
+                          isDark ? AppTheme.darkTextSecondary : Colors.black38,
                       fontSize: 15,
                     ),
                     border: InputBorder.none,
-                    contentPadding:
-                        const EdgeInsets.symmetric(vertical: 12),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
                   ),
                   onChanged: (_) => setState(() {}),
                   onSubmitted: (_) => _handleSend(),
@@ -137,16 +157,19 @@ class _ChatInputBarState extends State<ChatInputBar> {
                   ),
                 ),
               ] else ...[
-                // Mic — recording entry point only, no simulation
                 IconButton(
-                  icon: const Icon(Icons.mic_none_rounded, size: 22),
-                  color: isDark
-                      ? AppTheme.darkTextSecondary
-                      : Colors.black54,
+                  icon: Icon(
+                      ParakeetSpeechService.instance.isListening
+                          ? Icons.stop_circle_outlined
+                          : Icons.mic_none_rounded,
+                      size: 22),
+                  color: isDark ? AppTheme.darkTextSecondary : Colors.black54,
                   onPressed: _onMicTap,
                   padding: const EdgeInsets.all(12),
                   constraints: const BoxConstraints(),
-                  tooltip: 'Record (not yet implemented)',
+                  tooltip: ParakeetSpeechService.instance.isListening
+                      ? 'Stop listening'
+                      : 'Use microphone',
                 ),
               ],
             ],

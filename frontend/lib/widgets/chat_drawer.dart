@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/chat_session.dart';
 import '../models/ai_model_config.dart';
 import '../services/chat_storage_service.dart';
-import '../services/agent_service.dart';
 import '../services/scanner_service.dart';
 import '../theme/app_theme.dart';
-import 'model_selector_sheet.dart';
 
 class ChatDrawer extends StatefulWidget {
   final String activeSessionId;
@@ -57,13 +55,15 @@ class _ChatDrawerState extends State<ChatDrawer> {
       final q = query.toLowerCase();
       _filteredSessions = _allSessions.where((s) {
         final matchTitle = s.title.toLowerCase().contains(q);
-        final matchMessages = s.messages.any((m) => m.content.toLowerCase().contains(q));
+        final matchMessages =
+            s.messages.any((m) => m.content.toLowerCase().contains(q));
         return matchTitle || matchMessages;
       }).toList();
     }
   }
 
-  Map<String, List<ChatSession>> _groupSessionsByDate(List<ChatSession> sessions) {
+  Map<String, List<ChatSession>> _groupSessionsByDate(
+      List<ChatSession> sessions) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
@@ -119,7 +119,8 @@ class _ChatDrawerState extends State<ChatDrawer> {
             onPressed: () async {
               final newTitle = controller.text.trim();
               if (newTitle.isNotEmpty) {
-                await ChatStorageService.instance.renameSession(session.id, newTitle);
+                await ChatStorageService.instance
+                    .renameSession(session.id, newTitle);
                 await _loadSessions();
               }
               if (ctx.mounted) Navigator.pop(ctx);
@@ -143,7 +144,8 @@ class _ChatDrawerState extends State<ChatDrawer> {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.dangerRed),
+            style:
+                ElevatedButton.styleFrom(backgroundColor: AppTheme.dangerRed),
             onPressed: () async {
               await ChatStorageService.instance.deleteSession(session.id);
               await _loadSessions();
@@ -153,15 +155,6 @@ class _ChatDrawerState extends State<ChatDrawer> {
           ),
         ],
       ),
-    );
-  }
-
-  void _showModelSelectionModal() {
-    Navigator.pop(context); // close drawer first
-    ModelSelectorSheet.show(
-      context,
-      currentModel: widget.currentModel,
-      onSelectModel: widget.onSelectModel,
     );
   }
 
@@ -190,7 +183,6 @@ class _ChatDrawerState extends State<ChatDrawer> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final grouped = _groupSessionsByDate(_filteredSessions);
-    final hasApiKey = AgentService.instance.openRouterApiKey.isNotEmpty;
 
     return Drawer(
       backgroundColor: isDark ? AppTheme.darkSurface : const Color(0xFFF9F9F9),
@@ -205,25 +197,32 @@ class _ChatDrawerState extends State<ChatDrawer> {
                   Container(
                     height: 42,
                     decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF262626) : const Color(0xFFEBEBEB),
+                      color: isDark
+                          ? const Color(0xFF262626)
+                          : const Color(0xFFEBEBEB),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: TextField(
                       controller: _searchController,
                       style: TextStyle(
                         fontSize: 14,
-                        color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
+                        color:
+                            isDark ? AppTheme.darkTextPrimary : Colors.black87,
                       ),
                       decoration: InputDecoration(
                         hintText: 'Search chats...',
                         hintStyle: TextStyle(
-                          color: isDark ? AppTheme.darkTextSecondary : Colors.black45,
+                          color: isDark
+                              ? AppTheme.darkTextSecondary
+                              : Colors.black45,
                           fontSize: 14,
                         ),
                         prefixIcon: Icon(
                           Icons.search,
                           size: 18,
-                          color: isDark ? AppTheme.darkTextSecondary : Colors.black45,
+                          color: isDark
+                              ? AppTheme.darkTextSecondary
+                              : Colors.black45,
                         ),
                         suffixIcon: _searchController.text.isNotEmpty
                             ? GestureDetector(
@@ -235,13 +234,13 @@ class _ChatDrawerState extends State<ChatDrawer> {
                               )
                             : null,
                         border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                        contentPadding:
+                            const EdgeInsets.symmetric(vertical: 10),
                       ),
                       onChanged: (val) => setState(() => _filterSessions(val)),
                     ),
                   ),
                   const SizedBox(height: 10),
-
                   InkWell(
                     onTap: () {
                       Navigator.pop(context);
@@ -249,32 +248,40 @@ class _ChatDrawerState extends State<ChatDrawer> {
                     },
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 11),
                       decoration: BoxDecoration(
                         color: isDark ? const Color(0xFF2F2F2F) : Colors.white,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                          color: isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB),
+                          color: isDark
+                              ? AppTheme.darkBorder
+                              : const Color(0xFFE5E7EB),
                           width: 0.8,
                         ),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.add_rounded, size: 20, color: AppTheme.brandAccent),
+                          const Icon(Icons.add_rounded,
+                              size: 20, color: AppTheme.brandAccent),
                           const SizedBox(width: 10),
                           Text(
                             'New Chat',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
+                              color: isDark
+                                  ? AppTheme.darkTextPrimary
+                                  : Colors.black87,
                             ),
                           ),
                           const Spacer(),
                           Icon(
                             Icons.edit_square,
                             size: 16,
-                            color: isDark ? AppTheme.darkTextSecondary : Colors.black45,
+                            color: isDark
+                                ? AppTheme.darkTextSecondary
+                                : Colors.black45,
                           ),
                         ],
                       ),
@@ -295,13 +302,16 @@ class _ChatDrawerState extends State<ChatDrawer> {
                           child: Text(
                             'No conversations yet',
                             style: TextStyle(
-                              color: isDark ? AppTheme.darkTextSecondary : Colors.black45,
+                              color: isDark
+                                  ? AppTheme.darkTextSecondary
+                                  : Colors.black45,
                               fontSize: 13,
                             ),
                           ),
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 8),
                           itemCount: grouped.length,
                           itemBuilder: (ctx, idx) {
                             final groupTitle = grouped.keys.elementAt(idx);
@@ -311,33 +321,42 @@ class _ChatDrawerState extends State<ChatDrawer> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Padding(
-                                  padding: const EdgeInsets.fromLTRB(10, 14, 10, 6),
+                                  padding:
+                                      const EdgeInsets.fromLTRB(10, 14, 10, 6),
                                   child: Text(
                                     groupTitle,
                                     style: TextStyle(
                                       fontSize: 11.5,
                                       fontWeight: FontWeight.w600,
-                                      color: isDark ? AppTheme.darkTextSecondary : const Color(0xFF6B7280),
+                                      color: isDark
+                                          ? AppTheme.darkTextSecondary
+                                          : const Color(0xFF6B7280),
                                       letterSpacing: 0.2,
                                     ),
                                   ),
                                 ),
                                 ...sessionsInGroup.map((session) {
-                                  final isActive = session.id == widget.activeSessionId;
+                                  final isActive =
+                                      session.id == widget.activeSessionId;
 
                                   return InkWell(
                                     onTap: () {
                                       Navigator.pop(context);
                                       widget.onSelectSession(session);
                                     },
-                                    onLongPress: () => _showRenameDialog(session),
+                                    onLongPress: () =>
+                                        _showRenameDialog(session),
                                     borderRadius: BorderRadius.circular(8),
                                     child: Container(
-                                      margin: const EdgeInsets.symmetric(vertical: 2),
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                                      margin: const EdgeInsets.symmetric(
+                                          vertical: 2),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 9),
                                       decoration: BoxDecoration(
                                         color: isActive
-                                            ? (isDark ? const Color(0xFF333333) : const Color(0xFFE5E7EB))
+                                            ? (isDark
+                                                ? const Color(0xFF333333)
+                                                : const Color(0xFFE5E7EB))
                                             : Colors.transparent,
                                         borderRadius: BorderRadius.circular(8),
                                       ),
@@ -348,7 +367,9 @@ class _ChatDrawerState extends State<ChatDrawer> {
                                             size: 16,
                                             color: isActive
                                                 ? AppTheme.brandAccent
-                                                : (isDark ? AppTheme.darkTextSecondary : Colors.black54),
+                                                : (isDark
+                                                    ? AppTheme.darkTextSecondary
+                                                    : Colors.black54),
                                           ),
                                           const SizedBox(width: 10),
                                           Expanded(
@@ -356,21 +377,28 @@ class _ChatDrawerState extends State<ChatDrawer> {
                                               session.title,
                                               style: TextStyle(
                                                 fontSize: 13.5,
-                                                fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-                                                color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
+                                                fontWeight: isActive
+                                                    ? FontWeight.w600
+                                                    : FontWeight.normal,
+                                                color: isDark
+                                                    ? AppTheme.darkTextPrimary
+                                                    : Colors.black87,
                                               ),
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
                                           // V4: Session indexing state icon
-                                          _buildIndexingStateIcon(session.indexingState),
+                                          _buildIndexingStateIcon(
+                                              session.indexingState),
                                           const SizedBox(width: 2),
                                           PopupMenuButton<String>(
                                             icon: Icon(
                                               Icons.more_horiz,
                                               size: 16,
-                                              color: isDark ? AppTheme.darkTextSecondary : Colors.black45,
+                                              color: isDark
+                                                  ? AppTheme.darkTextSecondary
+                                                  : Colors.black45,
                                             ),
                                             padding: EdgeInsets.zero,
                                             constraints: const BoxConstraints(),
@@ -386,7 +414,8 @@ class _ChatDrawerState extends State<ChatDrawer> {
                                                 value: 'rename',
                                                 child: Row(
                                                   children: [
-                                                    Icon(Icons.edit_outlined, size: 16),
+                                                    Icon(Icons.edit_outlined,
+                                                        size: 16),
                                                     SizedBox(width: 8),
                                                     Text('Rename'),
                                                   ],
@@ -396,9 +425,15 @@ class _ChatDrawerState extends State<ChatDrawer> {
                                                 value: 'delete',
                                                 child: Row(
                                                   children: [
-                                                    Icon(Icons.delete_outline, color: AppTheme.dangerRed, size: 16),
+                                                    Icon(Icons.delete_outline,
+                                                        color:
+                                                            AppTheme.dangerRed,
+                                                        size: 16),
                                                     SizedBox(width: 8),
-                                                    Text('Delete', style: TextStyle(color: AppTheme.dangerRed)),
+                                                    Text('Delete',
+                                                        style: TextStyle(
+                                                            color: AppTheme
+                                                                .dangerRed)),
                                                   ],
                                                 ),
                                               ),
@@ -423,67 +458,23 @@ class _ChatDrawerState extends State<ChatDrawer> {
               color: isDark ? const Color(0xFF1B1B1B) : const Color(0xFFF1F3F5),
               child: Column(
                 children: [
-                  // Model Selector Tile
-                  InkWell(
-                    onTap: _showModelSelectionModal,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: AppTheme.brandAccent.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Icon(
-                              widget.currentModel.isLocal ? Icons.memory : Icons.auto_awesome,
-                              size: 16,
-                              color: AppTheme.brandAccent,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  widget.currentModel.name,
-                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  widget.currentModel.badge,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: isDark ? AppTheme.darkTextSecondary : Colors.black54,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Icon(Icons.unfold_more_rounded, size: 18, color: Colors.grey),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-
                   // Local Scanner / OCR Ingestion Tile
                   InkWell(
                     onTap: () async {
                       Navigator.pop(context);
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Opening folder picker...')),
+                        const SnackBar(
+                            content: Text('Opening folder picker...')),
                       );
                       // Import dynamic call to scanner service
-                      final result = await ScannerService.instance.pickAndScanFolder();
+                      final result =
+                          await ScannerService.instance.pickAndScanFolder();
                       if (context.mounted) {
                         if (result.isSuccess) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text('Indexed ${result.records.length} document(s) & photo(s) from selected folder.'),
+                              content: Text(
+                                  'Indexed ${result.records.length} document(s) & photo(s) from selected folder.'),
                               backgroundColor: AppTheme.brandAccent,
                             ),
                           );
@@ -499,51 +490,31 @@ class _ChatDrawerState extends State<ChatDrawer> {
                     },
                     borderRadius: BorderRadius.circular(8),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 4, horizontal: 4),
                       child: Row(
                         children: [
-                          const Icon(Icons.document_scanner_outlined, size: 16, color: AppTheme.brandAccent),
+                          const Icon(Icons.document_scanner_outlined,
+                              size: 16, color: AppTheme.brandAccent),
                           const SizedBox(width: 8),
                           Text(
                             'Scan Folder / Photos (OCR)',
                             style: TextStyle(
                               fontSize: 12,
-                              color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
+                              color: isDark
+                                  ? AppTheme.darkTextPrimary
+                                  : Colors.black87,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
                           const Spacer(),
-                          const Icon(Icons.folder_open, size: 16, color: Colors.grey),
+                          const Icon(Icons.folder_open,
+                              size: 16, color: Colors.grey),
                         ],
                       ),
                     ),
                   ),
                   const SizedBox(height: 6),
-
-                  // OpenRouter API Key Setting
-                  InkWell(
-                    onTap: _showModelSelectionModal,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-                      child: Row(
-                        children: [
-                          Icon(Icons.key_rounded, size: 16, color: hasApiKey ? AppTheme.brandAccent : Colors.grey),
-                          const SizedBox(width: 8),
-                          Text(
-                            hasApiKey ? 'OpenRouter Key (Active)' : 'Configure OpenRouter & Local Models',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: hasApiKey ? AppTheme.brandAccent : (isDark ? AppTheme.darkTextSecondary : Colors.black54),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const Spacer(),
-                          const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
-                        ],
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
