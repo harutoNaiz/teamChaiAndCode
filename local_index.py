@@ -1,9 +1,9 @@
-"""Reference local text index and the contract for the Android adapter."""
+"""Reference local vector text index and the contract for the Android adapter."""
 
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import asdict, dataclass
+import math
 import re
 from threading import RLock
 from typing import Any, Protocol
@@ -23,37 +23,65 @@ class IndexedRecord:
     page: int | None = None
     ocr_confidence: float | None = None
     modified_at: int | None = None
+
+
 class IndexStore(Protocol):
-    """The small contract that Android AppSearch must implement."""
+    """The contract that the local index implementation must adhere to."""
     def upsert(self, record: IndexedRecord) -> None: ...
     def search(self, query: str, limit: int = 20, *, content_types: set[str] | None = None,
                mime_types: set[str] | None = None, source_uri: str | None = None) -> list[dict[str, Any]]: ...
 
 
+@dataclass
+class _VectorEntry:
+    """Internal entry holding an indexed record and its sparse normalized feature vector."""
+    record: IndexedRecord
+    vector: dict[str, float]
+    norm: float
+
+
 class LocalTextIndex:
-    """Thread-safe, in-memory reference for the AppSearch-backed Android index."""
+    """Thread-safe vector-based index storing all entries in a single list.
+    
+    Designed as a self-contained black box implementing IndexStore so that the underlying
+    vector computation or storage engine can be swapped seamlessly.
+    """
 
     def __init__(self) -> None:
-        self._records: dict[str, IndexedRecord] = {}
-        self._terms: dict[str, set[str]] = defaultdict(set)
-        self._record_terms: dict[str, set[str]] = {}
-        self._source_records: dict[tuple[str, int | None], str] = {}
+        self._entries: list[_VectorEntry] = []
         self._lock = RLock()
 
     @staticmethod
-    def _tokens(text: str) -> set[str]:
-        return {token.casefold() for token in TOKEN_PATTERN.findall(text)}
-    def _remove_identifier(self, identifier: str) -> None:
-        record = self._records.pop(identifier, None)
-        if record is None:
-            return
-        for term in self._record_terms.pop(identifier, set()):
-            self._terms[term].discard(identifier)
-            if not self._terms[term]:
-                del self._terms[term]
-        source_key = (record.source_uri, record.page)
-        if self._source_records.get(source_key) == identifier:
-            del self._source_records[source_key]
+    def _extract_terms(text: str) -> list[str]:
+        tokens = [t.casefold() for t in TOKEN_PATTERN.findall(text)]
+        terms: list[str] = list(tokens)
+        for tok in tokens:
+            if len(tok) > 3:
+                for i in range(len(tok) - 2):
+                    terms.append(tok[i:i + 3])
+        return terms
+
+    @classmethod
+    def _vectorize(cls, text: str) -> tuple[dict[str, float], float]:
+        terms = cls._extract_terms(text)
+        if not terms:
+            return {}, 0.0
+        counts: dict[str, float] = {}
+        for term in terms:
+            counts[term] = counts.get(term, 0.0) + 1.0
+        norm = math.sqrt(sum(v * v for v in counts.values()))
+        if norm > 0.0:
+            for k in counts:
+                counts[k] /= norm
+        return counts, norm
+
+    @staticmethod
+    def _cosine_similarity(vec1: dict[str, float], vec2: dict[str, float]) -> float:
+        if not vec1 or not vec2:
+            return 0.0
+        if len(vec1) > len(vec2):
+            vec1, vec2 = vec2, vec1
+        return sum(val * vec2.get(key, 0.0) for key, val in vec1.items())
 
     def upsert(self, record: IndexedRecord) -> None:
         if not all((record.identifier, record.source_uri, record.display_name, record.mime_type, record.transcription.strip())):
@@ -64,49 +92,63 @@ class LocalTextIndex:
             raise ValueError("ocr_confidence must be between 0 and 1")
         if record.modified_at is not None and record.modified_at < 1:
             raise ValueError("modified_at must be positive")
+        
         searchable_text = f"{record.display_name} {record.transcription}"
-        terms = self._tokens(searchable_text)
+        vector, norm = self._vectorize(searchable_text)
+        new_entry = _VectorEntry(record=record, vector=vector, norm=norm)
+
         with self._lock:
-            source_key = (record.source_uri, record.page)
-            previous_identifier = self._source_records.get(source_key)
-            if previous_identifier and previous_identifier != record.identifier:
-                self._remove_identifier(previous_identifier)
-            self._remove_identifier(record.identifier)
-            self._records[record.identifier] = record
-            self._record_terms[record.identifier] = terms
-            self._source_records[source_key] = record.identifier
-            for term in terms:
-                self._terms[term].add(record.identifier)
+            # Replace stale records for the same source URI and page, or matching identifier
+            filtered_entries: list[_VectorEntry] = []
+            for entry in self._entries:
+                same_source = (entry.record.source_uri == record.source_uri and entry.record.page == record.page)
+                same_id = (entry.record.identifier == record.identifier)
+                if not (same_source or same_id):
+                    filtered_entries.append(entry)
+            
+            filtered_entries.append(new_entry)
+            self._entries = filtered_entries
 
     def search(self, query: str, limit: int = 20, *, content_types: set[str] | None = None,
                mime_types: set[str] | None = None, source_uri: str | None = None) -> list[dict[str, Any]]:
-        query_terms = self._tokens(query)
-        if not query_terms or not 1 <= limit <= 20:
+        query_text = query.strip()
+        if not query_text or not 1 <= limit <= 20:
             return []
-        scores: dict[str, int] = defaultdict(int)
+        
+        query_vec, query_norm = self._vectorize(query_text)
+        query_tokens = {t.casefold() for t in TOKEN_PATTERN.findall(query_text)}
+        
+        scored: list[tuple[float, IndexedRecord]] = []
         with self._lock:
-            for query_term in query_terms:
-                for term, identifiers in self._terms.items():
-                    if term.startswith(query_term):
-                        for identifier in identifiers:
-                            scores[identifier] += 1
-            results = []
-            for identifier, score in scores.items():
-                record = self._records[identifier]
-                if content_types and record.content_type not in content_types:
+            for entry in self._entries:
+                rec = entry.record
+                if content_types and rec.content_type not in content_types:
                     continue
-                if mime_types and record.mime_type not in mime_types:
+                if mime_types and rec.mime_type not in mime_types:
                     continue
-                if source_uri and record.source_uri != source_uri:
+                if source_uri and rec.source_uri != source_uri:
                     continue
-                if query.casefold() in record.transcription.casefold():
-                    score += len(query_terms)
-                result = asdict(record)
-                result["snippet"] = self._snippet(record.transcription, query)
-                result["open_uri"] = record.source_uri
-                result["score"] = score
-                results.append(result)
-        return sorted(results, key=lambda result: (-result["score"], result["display_name"]))[:limit]
+                sim = self._cosine_similarity(query_vec, entry.vector)
+                
+                # Check for prefix or exact matches in searchable text
+                text_lower = f"{rec.display_name} {rec.transcription}".casefold()
+                exact_boost = 1.0 if query_text.casefold() in text_lower else 0.0
+                prefix_matches = sum(1 for term in entry.vector if any(term.startswith(qt) for qt in query_tokens))
+                
+                total_score = (sim * 2.0) + exact_boost + (prefix_matches * 0.2)
+                if total_score > 0.0:
+                    scored.append((total_score, rec))
+
+        scored.sort(key=lambda item: (-item[0], item[1].display_name))
+        
+        results: list[dict[str, Any]] = []
+        for score, rec in scored[:limit]:
+            res = asdict(rec)
+            res["snippet"] = self._snippet(rec.transcription, query_text)
+            res["open_uri"] = rec.source_uri
+            res["score"] = round(score, 4)
+            results.append(res)
+        return results
 
     @staticmethod
     def _snippet(text: str, query: str, radius: int = 80) -> str:

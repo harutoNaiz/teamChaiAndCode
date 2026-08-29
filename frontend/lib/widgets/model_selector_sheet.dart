@@ -42,7 +42,8 @@ class ModelSelectorSheet extends StatefulWidget {
 class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
   final Map<String, bool> _downloadedStates = {};
   final Map<String, int> _modelSizes = {};
-  final Map<String, StreamSubscription<DownloadProgress>?> _downloadSubscriptions = {};
+  final Map<String, StreamSubscription<DownloadProgress>?>
+      _downloadSubscriptions = {};
   final Map<String, DownloadProgress?> _currentProgress = {};
 
   final TextEditingController _apiKeyController =
@@ -51,6 +52,8 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
 
   List<AIModelConfig> _freeModels = [];
   List<AIModelConfig> _filteredFreeModels = [];
+  bool _allModelsLoaded = false;
+  bool _loadingAllModels = false;
   bool _isSyncingModels = false;
 
   @override
@@ -71,7 +74,15 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
     super.dispose();
   }
 
-  void _filterModels(String query) {
+  Future<void> _filterModels(String query) async {
+    if (query.trim().isNotEmpty && !_allModelsLoaded && !_loadingAllModels) {
+      _loadingAllModels = true;
+      final allModels = await AgentService.instance.fetchAllOpenRouterModels();
+      if (!mounted) return;
+      _freeModels = allModels;
+      _allModelsLoaded = true;
+      _loadingAllModels = false;
+    }
     setState(() {
       if (query.trim().isEmpty) {
         _filteredFreeModels = List.from(_freeModels);
@@ -89,11 +100,13 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
   Future<void> _checkDownloadedModels() async {
     for (final model in AIModelConfig.localModels) {
       if (model.filename != null) {
-        final downloaded = await LocalModelManagerService.instance.isModelDownloaded(
+        final downloaded =
+            await LocalModelManagerService.instance.isModelDownloaded(
           model.id,
           model.filename!,
         );
-        final size = await LocalModelManagerService.instance.getModelSize(model.filename!);
+        final size = await LocalModelManagerService.instance
+            .getModelSize(model.filename!);
         if (mounted) {
           setState(() {
             _downloadedStates[model.id] = downloaded;
@@ -132,14 +145,16 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
           _checkDownloadedModels();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('${model.name} downloaded successfully! Ready for on-device inference.'),
+              content: Text(
+                  '${model.name} downloaded successfully! Ready for on-device inference.'),
               backgroundColor: AppTheme.brandAccent,
             ),
           );
         } else if (progress.isFailed) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Download failed: ${progress.errorMessage ?? "Unknown error"}'),
+              content: Text(
+                  'Download failed: ${progress.errorMessage ?? "Unknown error"}'),
               backgroundColor: AppTheme.dangerRed,
             ),
           );
@@ -157,7 +172,8 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
 
   Future<void> _deleteModel(AIModelConfig model) async {
     if (model.filename == null) return;
-    await LocalModelManagerService.instance.deleteModel(model.id, model.filename!);
+    await LocalModelManagerService.instance
+        .deleteModel(model.id, model.filename!);
     await _checkDownloadedModels();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -184,10 +200,12 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
       setState(() {
         _isSyncingModels = false;
         _freeModels = freeList;
-        _filterModels(_searchController.text);
       });
+      await _filterModels(_searchController.text);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fetched ${_freeModels.length} free models from OpenRouter!')),
+        SnackBar(
+            content: Text(
+                'Fetched ${_freeModels.length} free models from OpenRouter!')),
       );
     }
   }
@@ -223,7 +241,8 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
               // Title
               Row(
                 children: [
-                  const Icon(Icons.tune_rounded, color: AppTheme.brandAccent, size: 22),
+                  const Icon(Icons.tune_rounded,
+                      color: AppTheme.brandAccent, size: 22),
                   const SizedBox(width: 8),
                   const Text(
                     'Select AI Engine & Free Models',
@@ -236,9 +255,11 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
               // ===============================================================
               // SECTION 1: On-Device / Local Open-Source Models (LiteRT)
               // ===============================================================
-              _buildSectionHeader('📱 ON-DEVICE OPEN-SOURCE MODELS (LITERT)', isDark),
+              _buildSectionHeader(
+                  '📱 ON-DEVICE OPEN-SOURCE MODELS (LITERT)', isDark),
               const SizedBox(height: 8),
-              ...AIModelConfig.localModels.map((model) => _buildLocalModelTile(model, isDark)),
+              ...AIModelConfig.localModels
+                  .map((model) => _buildLocalModelTile(model, isDark)),
               const SizedBox(height: 16),
 
               // ===============================================================
@@ -247,7 +268,11 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildSectionHeader('🌐 FREE OPENROUTER MODELS (${_freeModels.length} AVAILABLE)', isDark),
+                  _buildSectionHeader(
+                      _allModelsLoaded
+                          ? '🌐 OPENROUTER MODELS (${_freeModels.length} AVAILABLE)'
+                          : '🌐 FREE OPENROUTER MODELS (${_freeModels.length} AVAILABLE)',
+                      isDark),
                   if (_isSyncingModels)
                     const SizedBox(
                       width: 14,
@@ -259,7 +284,8 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                       onTap: _syncFreeOpenRouterModels,
                       child: const Row(
                         children: [
-                          Icon(Icons.refresh_rounded, size: 14, color: AppTheme.brandAccent),
+                          Icon(Icons.refresh_rounded,
+                              size: 14, color: AppTheme.brandAccent),
                           SizedBox(width: 4),
                           Text(
                             'Refresh Free',
@@ -280,20 +306,27 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
               Container(
                 height: 38,
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF222222) : const Color(0xFFF1F3F5),
+                  color: isDark
+                      ? const Color(0xFF222222)
+                      : const Color(0xFFF1F3F5),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: TextField(
                   controller: _searchController,
-                  style: TextStyle(fontSize: 13, color: isDark ? Colors.white : Colors.black87),
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? Colors.white : Colors.black87),
                   decoration: InputDecoration(
-                    hintText: 'Search free OpenRouter models...',
-                    hintStyle: TextStyle(fontSize: 12.5, color: isDark ? Colors.grey : Colors.black45),
-                    prefixIcon: const Icon(Icons.search, size: 16, color: Colors.grey),
+                    hintText: 'Search all OpenRouter models (free + paid)...',
+                    hintStyle: TextStyle(
+                        fontSize: 12.5,
+                        color: isDark ? Colors.grey : Colors.black45),
+                    prefixIcon:
+                        const Icon(Icons.search, size: 16, color: Colors.grey),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(vertical: 8),
                   ),
-                  onChanged: _filterModels,
+                  onChanged: (value) => _filterModels(value),
                 ),
               ),
               const SizedBox(height: 8),
@@ -303,20 +336,30 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                 constraints: const BoxConstraints(maxHeight: 240),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB)),
+                  border: Border.all(
+                      color: isDark
+                          ? AppTheme.darkBorder
+                          : const Color(0xFFE5E7EB)),
                 ),
                 child: ListView.separated(
                   shrinkWrap: true,
                   itemCount: _filteredFreeModels.length,
-                  separatorBuilder: (ctx, idx) => Divider(height: 1, thickness: 0.5, color: isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB)),
+                  separatorBuilder: (ctx, idx) => Divider(
+                      height: 1,
+                      thickness: 0.5,
+                      color: isDark
+                          ? AppTheme.darkBorder
+                          : const Color(0xFFE5E7EB)),
                   itemBuilder: (ctx, idx) {
                     final model = _filteredFreeModels[idx];
                     final isSelected = widget.currentModel.id == model.id ||
-                        widget.currentModel.openRouterModelId == model.openRouterModelId;
+                        widget.currentModel.openRouterModelId ==
+                            model.openRouterModelId;
 
                     return ListTile(
                       dense: true,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 2),
                       title: Row(
                         children: [
                           Expanded(
@@ -324,31 +367,45 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                               model.name,
                               style: TextStyle(
                                 fontSize: 13,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                                color: isSelected ? AppTheme.brandAccent : (isDark ? Colors.white : Colors.black87),
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.w500,
+                                color: isSelected
+                                    ? AppTheme.brandAccent
+                                    : (isDark ? Colors.white : Colors.black87),
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: Colors.green.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: const Text(
                               'FREE',
-                              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.green),
+                              style: TextStyle(
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green),
                             ),
                           ),
                         ],
                       ),
                       subtitle: Text(
                         model.openRouterModelId,
-                        style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.grey),
+                        style: const TextStyle(
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            color: Colors.grey),
                         overflow: TextOverflow.ellipsis,
                       ),
-                      trailing: isSelected ? const Icon(Icons.check_circle, color: AppTheme.brandAccent, size: 18) : null,
+                      trailing: isSelected
+                          ? const Icon(Icons.check_circle,
+                              color: AppTheme.brandAccent, size: 18)
+                          : null,
                       onTap: () {
                         widget.onSelectModel(model);
                         Navigator.pop(context);
@@ -367,9 +424,14 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF242424) : const Color(0xFFF3F4F6),
+                  color: isDark
+                      ? const Color(0xFF242424)
+                      : const Color(0xFFF3F4F6),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB)),
+                  border: Border.all(
+                      color: isDark
+                          ? AppTheme.darkBorder
+                          : const Color(0xFFE5E7EB)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -389,8 +451,11 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                             decoration: InputDecoration(
                               hintText: 'sk-or-v1-...',
                               isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              fillColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
+                              fillColor: isDark
+                                  ? const Color(0xFF1A1A1A)
+                                  : Colors.white,
                             ),
                           ),
                         ),
@@ -400,10 +465,13 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.brandAccent,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 10),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
                           ),
-                          child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w600)),
+                          child: const Text('Save',
+                              style: TextStyle(fontWeight: FontWeight.w600)),
                         ),
                       ],
                     ),
@@ -435,15 +503,20 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
     final isDownloaded = _downloadedStates[model.id] ?? false;
     final sizeBytes = _modelSizes[model.id] ?? 0;
     final progress = _currentProgress[model.id];
-    final isDownloading = progress != null && !progress.isCompleted && !progress.isFailed;
+    final isDownloading =
+        progress != null && !progress.isCompleted && !progress.isFailed;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
-        color: isSelected ? AppTheme.brandAccent.withOpacity(0.08) : (isDark ? const Color(0xFF262626) : Colors.white),
+        color: isSelected
+            ? AppTheme.brandAccent.withOpacity(0.08)
+            : (isDark ? const Color(0xFF262626) : Colors.white),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isSelected ? AppTheme.brandAccent : (isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB)),
+          color: isSelected
+              ? AppTheme.brandAccent
+              : (isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB)),
           width: isSelected ? 1.5 : 1,
         ),
       ),
@@ -460,7 +533,8 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                     color: Colors.purple.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.memory_rounded, color: Colors.purpleAccent, size: 20),
+                  child: const Icon(Icons.memory_rounded,
+                      color: Colors.purpleAccent, size: 20),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -472,13 +546,15 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                           Flexible(
                             child: Text(
                               model.name,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 14),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 6),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: Colors.purple.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(6),
@@ -499,14 +575,17 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                         model.description,
                         style: TextStyle(
                           fontSize: 12,
-                          color: isDark ? AppTheme.darkTextSecondary : const Color(0xFF6B7280),
+                          color: isDark
+                              ? AppTheme.darkTextSecondary
+                              : const Color(0xFF6B7280),
                         ),
                       ),
                     ],
                   ),
                 ),
                 if (isSelected)
-                  const Icon(Icons.check_circle, color: AppTheme.brandAccent, size: 20),
+                  const Icon(Icons.check_circle,
+                      color: AppTheme.brandAccent, size: 20),
               ],
             ),
             const SizedBox(height: 10),
@@ -515,7 +594,8 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF9FAFB),
+                color:
+                    isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF9FAFB),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Column(
@@ -523,12 +603,16 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.folder_special_outlined, size: 14, color: Colors.grey),
+                      const Icon(Icons.folder_special_outlined,
+                          size: 14, color: Colors.grey),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           'App Internal Storage: models/${model.filename}',
-                          style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.grey),
+                          style: const TextStyle(
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              color: Colors.grey),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -544,8 +628,12 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('Downloading: ${progress.percentageText}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                            Text(progress.downloadedSizeText, style: const TextStyle(fontSize: 11.5, color: Colors.grey)),
+                            Text('Downloading: ${progress.percentageText}',
+                                style: const TextStyle(
+                                    fontSize: 12, fontWeight: FontWeight.w600)),
+                            Text(progress.downloadedSizeText,
+                                style: const TextStyle(
+                                    fontSize: 11.5, color: Colors.grey)),
                           ],
                         ),
                         const SizedBox(height: 6),
@@ -559,8 +647,11 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                           alignment: Alignment.centerRight,
                           child: TextButton.icon(
                             onPressed: () => _cancelDownload(model),
-                            icon: const Icon(Icons.close, size: 14, color: AppTheme.dangerRed),
-                            label: const Text('Cancel Download', style: TextStyle(color: AppTheme.dangerRed, fontSize: 12)),
+                            icon: const Icon(Icons.close,
+                                size: 14, color: AppTheme.dangerRed),
+                            label: const Text('Cancel Download',
+                                style: TextStyle(
+                                    color: AppTheme.dangerRed, fontSize: 12)),
                           ),
                         ),
                       ],
@@ -568,11 +659,15 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                   ] else if (isDownloaded) ...[
                     Row(
                       children: [
-                        const Icon(Icons.check_circle_outline, color: AppTheme.brandAccent, size: 15),
+                        const Icon(Icons.check_circle_outline,
+                            color: AppTheme.brandAccent, size: 15),
                         const SizedBox(width: 6),
                         Text(
                           'Downloaded (${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB)',
-                          style: const TextStyle(color: AppTheme.brandAccent, fontSize: 12, fontWeight: FontWeight.w600),
+                          style: const TextStyle(
+                              color: AppTheme.brandAccent,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600),
                         ),
                         const Spacer(),
                         if (!isSelected)
@@ -584,13 +679,16 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppTheme.brandAccent,
                               foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 4),
                               minimumSize: Size.zero,
                             ),
-                            child: const Text('Select Model', style: TextStyle(fontSize: 12)),
+                            child: const Text('Select Model',
+                                style: TextStyle(fontSize: 12)),
                           ),
                         IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 16, color: Colors.grey),
+                          icon: const Icon(Icons.delete_outline,
+                              size: 16, color: Colors.grey),
                           tooltip: 'Delete downloaded model file',
                           onPressed: () => _deleteModel(model),
                           padding: EdgeInsets.zero,
@@ -601,19 +699,26 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                   ] else ...[
                     Row(
                       children: [
-                        const Icon(Icons.info_outline, size: 14, color: Colors.orange),
+                        const Icon(Icons.info_outline,
+                            size: 14, color: Colors.orange),
                         const SizedBox(width: 6),
-                        const Text('Not downloaded yet', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                        const Text('Not downloaded yet',
+                            style:
+                                TextStyle(fontSize: 12, color: Colors.orange)),
                         const Spacer(),
                         ElevatedButton.icon(
                           onPressed: () => _startDownload(model),
                           icon: const Icon(Icons.download_rounded, size: 15),
-                          label: const Text('Download Model', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          label: const Text('Download Model',
+                              style: TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.w600)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.brandAccent,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 6),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
                             minimumSize: Size.zero,
                           ),
                         ),

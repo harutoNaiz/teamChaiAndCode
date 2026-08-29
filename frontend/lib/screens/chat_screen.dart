@@ -51,16 +51,36 @@ class _ChatScreenState extends State<ChatScreen> {
           );
         }
 
-        if (sessions.isNotEmpty) {
+        if (sessions.isNotEmpty && sessions.first.messages.isEmpty) {
+          // Reuse a blank draft rather than creating duplicates on cold start.
           _currentSession = sessions.first;
+        } else if (sessions.isNotEmpty) {
+          // Exactly one fresh draft is created when the previous latest chat
+          // contains messages. Subsequent rebuilds do not enter this path.
+          _currentSession = ChatSession(
+            id: 'session-${DateTime.now().millisecondsSinceEpoch}',
+            title: 'New Chat',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            selectedModelId: _currentModel.id,
+          );
+          ChatStorageService.instance.saveSession(_currentSession!);
+          _scrollToBottom();
+        } else {
+          _currentSession = ChatSession(
+            id: 'session-${DateTime.now().millisecondsSinceEpoch}',
+            title: 'New Chat',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            selectedModelId: _currentModel.id,
+          );
+          ChatStorageService.instance.saveSession(_currentSession!);
           if (savedModelId == null) {
             _currentModel = AIModelConfig.availableModels.firstWhere(
               (m) => m.id == _currentSession!.selectedModelId,
               orElse: () => _currentModel,
             );
           }
-        } else {
-          _createNewChat();
         }
         _isLoading = false;
       });
@@ -119,8 +139,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  Future<void> _handleSendMessage(
-      String text, String? attachmentName, String? attachmentPath) async {
+  Future<void> _handleSendMessage(String text) async {
     if (_currentSession == null || _isGenerating) return;
 
     final userMessage = ChatMessage(
@@ -128,12 +147,17 @@ class _ChatScreenState extends State<ChatScreen> {
       role: MessageRole.user,
       content: text,
       timestamp: DateTime.now(),
-      attachmentName: attachmentName,
-      attachmentPath: attachmentPath,
     );
 
     setState(() {
       _currentSession!.addMessage(userMessage);
+      if (_currentSession!.title == 'New Chat' ||
+          _currentSession!.title == 'Chat') {
+        final compact = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+        _currentSession!.title = compact.length > 48
+            ? '${compact.substring(0, 48).trimRight()}…'
+            : compact;
+      }
       _isGenerating = true;
     });
     _scrollToBottom();
@@ -145,7 +169,6 @@ class _ChatScreenState extends State<ChatScreen> {
       final responseMessage = await AgentService.instance.sendMessage(
         session: _currentSession!,
         prompt: text,
-        attachmentPath: attachmentPath,
         modelConfig: _currentModel,
       );
 

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
-import '../services/parakeet_speech_service.dart';
 import '../theme/app_theme.dart';
+import '../services/parakeet_speech_service.dart';
 
+/// V1: Clean chat input bar — text entry + mic (recording entry point only) + send.
+/// No attachment state, no fake paths, no simulated transcripts.
 class ChatInputBar extends StatefulWidget {
-  final Function(String text, String? attachmentName, String? attachmentPath) onSendMessage;
+  /// V1: signature is text-only, no attachment params.
+  final Function(String text) onSendMessage;
   final bool isGenerating;
   final VoidCallback? onStopGenerating;
 
@@ -21,8 +24,7 @@ class ChatInputBar extends StatefulWidget {
 class _ChatInputBarState extends State<ChatInputBar> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
-  bool _isListeningVoice = false;
-  String _voiceInterimStatus = '';
+  Stream<String>? _speechStream;
 
   @override
   void dispose() {
@@ -34,82 +36,41 @@ class _ChatInputBarState extends State<ChatInputBar> {
   void _handleSend() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
-
-    widget.onSendMessage(
-      text,
-      null,
-      null,
-    );
-
+    widget.onSendMessage(text);
     _controller.clear();
-    setState(() {
-      _isListeningVoice = false;
-      _voiceInterimStatus = '';
-    });
+    setState(() {});
   }
 
-  void _toggleParakeetVoiceInput() {
-    if (_isListeningVoice) {
+  void _onMicTap() {
+    if (ParakeetSpeechService.instance.isListening) {
       ParakeetSpeechService.instance.stopListening();
-      setState(() {
-        _isListeningVoice = false;
-        _voiceInterimStatus = '';
-      });
+      setState(() {});
       return;
     }
-
-    setState(() {
-      _isListeningVoice = true;
-      _voiceInterimStatus = 'Listening with Parakeet Unified EN 0.6B...';
-    });
-
-    ParakeetSpeechService.instance.startListening(
-      onInterimResult: (interim) {
-        if (mounted && _isListeningVoice) {
-          setState(() => _voiceInterimStatus = interim);
-        }
+    _speechStream = ParakeetSpeechService.instance.startListening(
+      onFinalResult: (text) {
+        if (!mounted) return;
+        _controller.text = text;
+        _controller.selection = TextSelection.collapsed(offset: text.length);
+        setState(() {});
       },
-      onFinalResult: (rawSpokenText) {
-        if (mounted) {
-          final corrected = ParakeetSpeechService.instance.correctTranscription(rawSpokenText);
-          setState(() {
-            _controller.text = corrected;
-            _isListeningVoice = false;
-            _voiceInterimStatus = '';
-          });
-        }
+      onInterimResult: (_) {
+        if (mounted) setState(() {});
       },
       onError: () {
-        if (mounted) {
-          setState(() {
-            _isListeningVoice = false;
-            _voiceInterimStatus = '';
-          });
-        }
+        if (!mounted) return;
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Microphone permission or speech recognition is unavailable.'),
+          behavior: SnackBarBehavior.floating,
+        ));
       },
     );
-
-    // Parakeet 0.6B intelligent acoustic inference simulation
-    Future.delayed(const Duration(milliseconds: 2000), () {
-      if (mounted && _isListeningVoice) {
-        const rawSpoken = 'summarise my adhar card and check swigy bill reciept';
-        final corrected = ParakeetSpeechService.instance.correctTranscription(rawSpoken);
-
-        setState(() {
-          _controller.text = corrected;
-          _isListeningVoice = false;
-          _voiceInterimStatus = '';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('🎙️ Parakeet 0.6B: Speech recognized and mispronunciations corrected!'),
-            duration: Duration(seconds: 2),
-            backgroundColor: AppTheme.brandAccent,
-          ),
-        );
-      }
+    _speechStream!.listen((_) {
+      if (mounted) setState(() {});
     });
+    setState(() {});
   }
 
   @override
@@ -118,122 +79,102 @@ class _ChatInputBarState extends State<ChatInputBar> {
     final hasText = _controller.text.trim().isNotEmpty;
 
     return Container(
-      padding: const EdgeInsets.only(left: 10, right: 10, bottom: 12, top: 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkBg : Colors.white,
+        border: Border(
+          top: BorderSide(
+            color: isDark ? AppTheme.darkBorder : const Color(0xFFEEEEEE),
+            width: 1,
+          ),
+        ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Parakeet voice listening banner
-          if (_isListeningVoice) ...[
-            Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.redAccent.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.graphic_eq_rounded, size: 18, color: Colors.redAccent),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _voiceInterimStatus.isNotEmpty ? _voiceInterimStatus : 'Listening (Parakeet 0.6B)...',
-                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Colors.redAccent),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: _toggleParakeetVoiceInput,
-                    child: const Text('Stop', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.redAccent)),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          // Main input capsule
-          Container(
-            decoration: BoxDecoration(
-              color: isDark ? AppTheme.darkInputBg : const Color(0xFFF4F4F4),
-              borderRadius: BorderRadius.circular(26),
-              border: Border.all(
-                color: isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB),
-                width: 1,
-              ),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                const SizedBox(width: 14),
-
-                // Text Field
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    focusNode: _focusNode,
-                    minLines: 1,
-                    maxLines: 5,
-                    textCapitalization: TextCapitalization.sentences,
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: _isListeningVoice ? 'Listening...' : 'Message teamChai...',
-                      hintStyle: TextStyle(
-                        color: isDark ? AppTheme.darkTextSecondary : Colors.black38,
-                        fontSize: 15,
-                      ),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    onChanged: (val) => setState(() {}),
-                    onSubmitted: (_) => _handleSend(),
-                  ),
-                ),
-
-                // Parakeet 0.6B Voice Mic or Send Button
-                if (widget.isGenerating) ...[
-                  IconButton(
-                    icon: const Icon(Icons.stop_circle_rounded, size: 26, color: AppTheme.dangerRed),
-                    onPressed: widget.onStopGenerating,
-                    padding: const EdgeInsets.all(10),
-                    constraints: const BoxConstraints(),
-                  ),
-                ] else if (hasText) ...[
-                  Container(
-                    margin: const EdgeInsets.all(6),
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppTheme.brandAccent,
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.arrow_upward_rounded, size: 20, color: Colors.white),
-                      onPressed: _handleSend,
-                      padding: const EdgeInsets.all(8),
-                      constraints: const BoxConstraints(),
-                    ),
-                  ),
-                ] else ...[
-                  IconButton(
-                    icon: Icon(
-                      _isListeningVoice ? Icons.mic : Icons.mic_none_rounded,
-                      size: 22,
-                      color: _isListeningVoice ? Colors.redAccent : (isDark ? AppTheme.darkTextSecondary : Colors.black54),
-                    ),
-                    onPressed: _toggleParakeetVoiceInput,
-                    padding: const EdgeInsets.all(12),
-                    constraints: const BoxConstraints(),
-                    tooltip: 'Parakeet Unified EN 0.6B Voice Typing',
-                  ),
-                ],
-              ],
+      child: SafeArea(
+        top: false,
+        child: Container(
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.darkInputBg : const Color(0xFFF4F4F4),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(
+              color: isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB),
+              width: 1,
             ),
           ),
-        ],
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              const SizedBox(width: 14),
+
+              // Text field
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  minLines: 1,
+                  maxLines: 5,
+                  textCapitalization: TextCapitalization.sentences,
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Message teamChai…',
+                    hintStyle: TextStyle(
+                      color:
+                          isDark ? AppTheme.darkTextSecondary : Colors.black38,
+                      fontSize: 15,
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                  onSubmitted: (_) => _handleSend(),
+                ),
+              ),
+
+              // Right-side action: stop / send / mic
+              if (widget.isGenerating) ...[
+                IconButton(
+                  icon: const Icon(Icons.stop_circle_rounded,
+                      size: 26, color: AppTheme.dangerRed),
+                  onPressed: widget.onStopGenerating,
+                  padding: const EdgeInsets.all(10),
+                  constraints: const BoxConstraints(),
+                ),
+              ] else if (hasText) ...[
+                Container(
+                  margin: const EdgeInsets.all(6),
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppTheme.brandAccent,
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_upward_rounded,
+                        size: 20, color: Colors.white),
+                    onPressed: _handleSend,
+                    padding: const EdgeInsets.all(8),
+                    constraints: const BoxConstraints(),
+                  ),
+                ),
+              ] else ...[
+                IconButton(
+                  icon: Icon(
+                      ParakeetSpeechService.instance.isListening
+                          ? Icons.stop_circle_outlined
+                          : Icons.mic_none_rounded,
+                      size: 22),
+                  color: isDark ? AppTheme.darkTextSecondary : Colors.black54,
+                  onPressed: _onMicTap,
+                  padding: const EdgeInsets.all(12),
+                  constraints: const BoxConstraints(),
+                  tooltip: ParakeetSpeechService.instance.isListening
+                      ? 'Stop listening'
+                      : 'Use microphone',
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

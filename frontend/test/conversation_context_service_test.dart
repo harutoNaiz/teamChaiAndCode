@@ -5,7 +5,7 @@ import 'package:team_chai_and_code/services/conversation_context_service.dart';
 
 ChatSession sessionWithMessages(int count, {int chars = 20}) {
   final session = ChatSession(
-    id: 'session-1', title: 'Context test', createdAt: DateTime(2026), updatedAt: DateTime(2026),
+    id: 'session-1', title: 'Context test', createdAt: DateTime(2026), updatedAt: DateTime(2026), selectedModelId: 'test-model',
   );
   for (var index = 0; index < count; index++) {
     session.addMessage(ChatMessage(

@@ -1,22 +1,27 @@
 import 'chat_message.dart';
 
+// V4: Session indexing state enum
+enum SessionIndexingState { notIndexed, indexing, indexed, failed }
+
 class ChatSession {
   final String id;
   String title;
   final DateTime createdAt;
   DateTime updatedAt;
-  List<ChatMessage> messages;
-  String? compressedSummary;
   String selectedModelId;
+  String? compressedSummary;
+  final List<ChatMessage> messages;
+  SessionIndexingState indexingState;
 
   ChatSession({
     required this.id,
     required this.title,
     required this.createdAt,
     required this.updatedAt,
-    List<ChatMessage>? messages,
+    required this.selectedModelId,
     this.compressedSummary,
-    this.selectedModelId = 'gemini-1.5-flash',
+    List<ChatMessage>? messages,
+    this.indexingState = SessionIndexingState.notIndexed,
   }) : messages = messages ?? [];
 
   void touch() {
@@ -26,12 +31,6 @@ class ChatSession {
   void addMessage(ChatMessage message) {
     messages.add(message);
     touch();
-    if (messages.length == 1 && title == 'New Chat' && message.isUser) {
-      // Auto-title from first user message
-      final words = message.content.trim().split(RegExp(r'\s+'));
-      title = words.take(6).join(' ');
-      if (title.isEmpty) title = 'New Conversation';
-    }
   }
 
   Map<String, dynamic> toJson() => {
@@ -39,23 +38,31 @@ class ChatSession {
         'title': title,
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
-        'messages': messages.map((m) => m.toJson()).toList(),
-        'compressedSummary': compressedSummary,
         'selectedModelId': selectedModelId,
+        'compressedSummary': compressedSummary,
+        'indexingState': indexingState.name,
+        'messages': messages.map((m) => m.toJson()).toList(),
       };
 
   factory ChatSession.fromJson(Map<String, dynamic> json) {
+    final rawState = json['indexingState'] as String?;
     return ChatSession(
       id: json['id'] as String,
-      title: json['title'] as String? ?? 'New Chat',
+      title: json['title'] as String? ?? 'Chat',
       createdAt: DateTime.tryParse(json['createdAt'] ?? '') ?? DateTime.now(),
       updatedAt: DateTime.tryParse(json['updatedAt'] ?? '') ?? DateTime.now(),
+      selectedModelId: json['selectedModelId'] as String? ?? '',
+      compressedSummary: json['compressedSummary'] as String?,
+      indexingState: rawState == null
+          ? SessionIndexingState.notIndexed
+          : SessionIndexingState.values.firstWhere(
+              (e) => e.name == rawState,
+              orElse: () => SessionIndexingState.notIndexed,
+            ),
       messages: (json['messages'] as List<dynamic>?)
-              ?.map((m) => ChatMessage.fromJson(Map<String, dynamic>.from(m)))
+              ?.map((item) => ChatMessage.fromJson(Map<String, dynamic>.from(item as Map)))
               .toList() ??
           [],
-      compressedSummary: json['compressedSummary'] as String?,
-      selectedModelId: json['selectedModelId'] as String? ?? 'gemini-1.5-flash',
     );
   }
 }

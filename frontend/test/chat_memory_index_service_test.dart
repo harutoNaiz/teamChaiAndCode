@@ -19,7 +19,7 @@ class RecordingIndex implements LocalIndexClient {
 
 void main() {
   test('indexes every non-empty message with session/message provenance', () async {
-    final session = ChatSession(id: 'session one', title: 'Planning', createdAt: DateTime(2026), updatedAt: DateTime(2026));
+    final session = ChatSession(id: 'session one', title: 'Planning', createdAt: DateTime(2026), updatedAt: DateTime(2026), selectedModelId: 'test-model');
     session.addMessage(ChatMessage(id: 'm1', role: MessageRole.user, content: 'Remember the sprint date', timestamp: DateTime(2026)));
     session.addMessage(ChatMessage(id: 'm2', role: MessageRole.assistant, content: '', timestamp: DateTime(2026)));
     final index = RecordingIndex();
@@ -32,8 +32,8 @@ void main() {
   });
 
   test('backfills every locally retained session', () async {
-    final first = ChatSession(id: 'first', title: 'First', createdAt: DateTime(2026), updatedAt: DateTime(2026));
-    final second = ChatSession(id: 'second', title: 'Second', createdAt: DateTime(2026), updatedAt: DateTime(2026));
+    final first = ChatSession(id: 'first', title: 'First', createdAt: DateTime(2026), updatedAt: DateTime(2026), selectedModelId: 'test-model');
+    final second = ChatSession(id: 'second', title: 'Second', createdAt: DateTime(2026), updatedAt: DateTime(2026), selectedModelId: 'test-model');
     first.addMessage(ChatMessage(id: 'one', role: MessageRole.user, content: 'First memory', timestamp: DateTime(2026)));
     second.addMessage(ChatMessage(id: 'two', role: MessageRole.user, content: 'Second memory', timestamp: DateTime(2026)));
     final index = RecordingIndex();

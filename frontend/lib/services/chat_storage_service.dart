@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/chat_session.dart';
 import '../models/chat_message.dart';
 import '../models/agent_action.dart';
+import '../widgets/grounded_state_banner.dart';
 
 class ChatStorageService {
   static final ChatStorageService instance = ChatStorageService._internal();
@@ -37,6 +38,16 @@ class ChatStorageService {
     return '$dir/$sanitizedId.md';
   }
 
+  /// V4: Update indexing state for a session and persist.
+  void setSessionIndexingState(String sessionId, SessionIndexingState state) {
+    if (_cache == null) return;
+    final idx = _cache!.indexWhere((s) => s.id == sessionId);
+    if (idx >= 0) {
+      _cache![idx].indexingState = state;
+      _writeSessionToMarkdownFile(_cache![idx]);
+    }
+  }
+
   /// Converts a ChatSession into structured, human-readable Markdown (.md)
   String sessionToMarkdown(ChatSession session) {
     final buffer = StringBuffer();
@@ -48,7 +59,10 @@ class ChatStorageService {
     buffer.writeln('created_at: ${session.createdAt.toIso8601String()}');
     buffer.writeln('updated_at: ${session.updatedAt.toIso8601String()}');
     buffer.writeln('selected_model_id: ${session.selectedModelId}');
-    if (session.compressedSummary != null && session.compressedSummary!.isNotEmpty) {
+    // V4: persist indexing state
+    buffer.writeln('indexing_state: ${session.indexingState.name}');
+    if (session.compressedSummary != null &&
+        session.compressedSummary!.isNotEmpty) {
       final escapedSummary = jsonEncode(session.compressedSummary);
       buffer.writeln('compressed_summary: $escapedSummary');
     }
@@ -60,18 +74,27 @@ class ChatStorageService {
       buffer.writeln('### Message: ${msg.id}');
       buffer.writeln('- **Role:** ${msg.role.name}');
       buffer.writeln('- **Timestamp:** ${msg.timestamp.toIso8601String()}');
-      if (msg.attachmentName != null) {
-        buffer.writeln('- **AttachmentName:** ${msg.attachmentName}');
-      }
-      if (msg.attachmentPath != null) {
-        buffer.writeln('- **AttachmentPath:** ${msg.attachmentPath}');
-      }
+      // V1: No attachment fields written
       if (msg.thoughtProcess != null && msg.thoughtProcess!.isNotEmpty) {
-        buffer.writeln('- **ThoughtProcess:** ${jsonEncode(msg.thoughtProcess)}');
+        buffer
+            .writeln('- **ThoughtProcess:** ${jsonEncode(msg.thoughtProcess)}');
       }
       if (msg.actions.isNotEmpty) {
-        final actionsJson = jsonEncode(msg.actions.map((a) => a.toJson()).toList());
+        final actionsJson =
+            jsonEncode(msg.actions.map((a) => a.toJson()).toList());
         buffer.writeln('- **Actions:** $actionsJson');
+      }
+      // V3: persist grounded state
+      if (msg.groundedState != null) {
+        buffer.writeln('- **GroundedState:** ${msg.groundedState!.name}');
+      }
+      if (msg.cloudModelName != null) {
+        buffer.writeln('- **CloudModelName:** ${msg.cloudModelName}');
+      }
+      // V5: persist citation IDs
+      if (msg.citationIds.isNotEmpty) {
+        buffer.writeln(
+            '- **CitationIds:** ${jsonEncode(msg.citationIds)}');
       }
       buffer.writeln();
       buffer.writeln(msg.content);
@@ -100,6 +123,7 @@ class ChatStorageService {
       DateTime updatedAt = DateTime.now();
       String selectedModelId = 'litert-community/gemma-4-E4B-it-litert-lm';
       String? compressedSummary;
+      SessionIndexingState indexingState = SessionIndexingState.notIndexed;
 
       // Parse Frontmatter
       for (final line in header.split('\n')) {
@@ -113,11 +137,19 @@ class ChatStorageService {
           }
           title = t;
         } else if (trimmed.startsWith('created_at:')) {
-          createdAt = DateTime.tryParse(trimmed.substring(11).trim()) ?? createdAt;
+          createdAt =
+              DateTime.tryParse(trimmed.substring(11).trim()) ?? createdAt;
         } else if (trimmed.startsWith('updated_at:')) {
-          updatedAt = DateTime.tryParse(trimmed.substring(11).trim()) ?? updatedAt;
+          updatedAt =
+              DateTime.tryParse(trimmed.substring(11).trim()) ?? updatedAt;
         } else if (trimmed.startsWith('selected_model_id:')) {
           selectedModelId = trimmed.substring(18).trim();
+        } else if (trimmed.startsWith('indexing_state:')) {
+          final raw = trimmed.substring(15).trim();
+          indexingState = SessionIndexingState.values.firstWhere(
+            (e) => e.name == raw,
+            orElse: () => SessionIndexingState.notIndexed,
+          );
         } else if (trimmed.startsWith('compressed_summary:')) {
           final raw = trimmed.substring(19).trim();
           try {
@@ -135,22 +167,25 @@ class ChatStorageService {
         updatedAt: updatedAt,
         selectedModelId: selectedModelId,
         compressedSummary: compressedSummary,
+        indexingState: indexingState,
       );
 
       // Parse Message sections in Body
       final messageBlocks = body.split(RegExp(r'\n---\n'));
       for (final block in messageBlocks) {
         final trimmedBlock = block.trim();
-        if (trimmedBlock.isEmpty || !trimmedBlock.startsWith('### Message:')) continue;
+        if (trimmedBlock.isEmpty ||
+            !trimmedBlock.startsWith('### Message:')) continue;
 
         final lines = trimmedBlock.split('\n');
         String msgId = 'msg-${DateTime.now().millisecondsSinceEpoch}';
         MessageRole role = MessageRole.user;
         DateTime timestamp = DateTime.now();
-        String? attachmentName;
-        String? attachmentPath;
         String? thoughtProcess;
         List<AgentAction> actions = [];
+        GroundedState? groundedState;
+        String? cloudModelName;
+        List<String> citationIds = [];
 
         int bodyStartIndex = 0;
         for (int i = 0; i < lines.length; i++) {
@@ -159,13 +194,11 @@ class ChatStorageService {
             msgId = l.substring(12).trim();
           } else if (l.startsWith('- **Role:**')) {
             final r = l.substring(11).trim().toLowerCase();
-            role = r == 'assistant' ? MessageRole.assistant : MessageRole.user;
+            role =
+                r == 'assistant' ? MessageRole.assistant : MessageRole.user;
           } else if (l.startsWith('- **Timestamp:**')) {
-            timestamp = DateTime.tryParse(l.substring(16).trim()) ?? timestamp;
-          } else if (l.startsWith('- **AttachmentName:**')) {
-            attachmentName = l.substring(21).trim();
-          } else if (l.startsWith('- **AttachmentPath:**')) {
-            attachmentPath = l.substring(21).trim();
+            timestamp =
+                DateTime.tryParse(l.substring(16).trim()) ?? timestamp;
           } else if (l.startsWith('- **ThoughtProcess:**')) {
             final raw = l.substring(21).trim();
             try {
@@ -177,7 +210,24 @@ class ChatStorageService {
             final raw = l.substring(14).trim();
             try {
               final List<dynamic> decoded = jsonDecode(raw);
-              actions = decoded.map((a) => AgentAction.fromJson(Map<String, dynamic>.from(a))).toList();
+              actions = decoded
+                  .map((a) =>
+                      AgentAction.fromJson(Map<String, dynamic>.from(a)))
+                  .toList();
+            } catch (_) {}
+          } else if (l.startsWith('- **GroundedState:**')) {
+            final raw = l.substring(20).trim();
+            groundedState = GroundedState.values.firstWhere(
+              (e) => e.name == raw,
+              orElse: () => GroundedState.noResults,
+            );
+          } else if (l.startsWith('- **CloudModelName:**')) {
+            cloudModelName = l.substring(21).trim();
+          } else if (l.startsWith('- **CitationIds:**')) {
+            final raw = l.substring(18).trim();
+            try {
+              final decoded = jsonDecode(raw) as List<dynamic>;
+              citationIds = decoded.map((e) => e as String).toList();
             } catch (_) {}
           } else if (l.isEmpty && i > 1) {
             bodyStartIndex = i + 1;
@@ -194,10 +244,11 @@ class ChatStorageService {
           role: role,
           content: msgContent,
           timestamp: timestamp,
-          attachmentName: attachmentName,
-          attachmentPath: attachmentPath,
           thoughtProcess: thoughtProcess,
           actions: actions,
+          groundedState: groundedState,
+          cloudModelName: cloudModelName,
+          citationIds: citationIds,
         ));
       }
 
@@ -226,7 +277,10 @@ class ChatStorageService {
         final dirPath = await getChatsDirectoryPath();
         final dir = Directory(dirPath);
         if (await dir.exists()) {
-          final files = dir.listSync().whereType<File>().where((f) => f.path.endsWith('.md'));
+          final files = dir
+              .listSync()
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.md'));
           for (final file in files) {
             try {
               final content = await file.readAsString();
@@ -319,7 +373,10 @@ class ChatStorageService {
         final dirPath = await getChatsDirectoryPath();
         final dir = Directory(dirPath);
         if (await dir.exists()) {
-          final files = dir.listSync().whereType<File>().where((f) => f.path.endsWith('.md'));
+          final files = dir
+              .listSync()
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.md'));
           for (final f in files) {
             await f.delete();
           }

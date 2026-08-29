@@ -31,8 +31,13 @@ class FileOperationExecutor(private val provider: FileCapabilityProvider) {
         val outcomes = linkedMapOf<String, ActionOutcome>()
         manifest.candidates.forEach { candidate ->
             val current = provider.current(candidate.metadata.uri)
-            if (current == null || current.contentVersion != candidate.metadata.contentVersion) {
+            if (current == null || current.uri != candidate.metadata.uri ||
+                current.contentVersion != candidate.metadata.contentVersion) {
                 outcomes[candidate.metadata.sourceId] = ActionOutcome.Failed("Source changed, missing, or unavailable")
+                return@forEach
+            }
+            if (!capable(manifest.plan.operation, current)) {
+                outcomes[current.sourceId] = ActionOutcome.Failed("Provider capability changed since preview")
                 return@forEach
             }
             val outcome = when (manifest.plan.operation) {
@@ -45,5 +50,13 @@ class FileOperationExecutor(private val provider: FileCapabilityProvider) {
             outcomes[current.sourceId] = outcome
         }
         return FileActionReceipt(manifest.manifestHash, nowMillis, outcomes)
+    }
+
+    private fun capable(operation: FileOperation, file: FileMetadata): Boolean = when (operation) {
+        FileOperation.LIST -> true
+        FileOperation.MOVE -> file.supportsMove
+        FileOperation.RENAME -> file.supportsRename
+        FileOperation.SOFT_DELETE -> file.supportsTrash
+        FileOperation.RESTORE -> file.supportsRestore
     }
 }

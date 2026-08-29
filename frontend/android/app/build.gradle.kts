@@ -9,12 +9,18 @@ dependencies {
     implementation("androidx.appsearch:appsearch:1.1.0")
     implementation("androidx.appsearch:appsearch-local-storage:1.1.0")
     implementation("com.google.mediapipe:tasks-text:1.0.0")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    // Pin the stable release so builds remain reproducible (latest alpha may
+    // require a newer Kotlin compiler than the Flutter toolchain).
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
 }
 
 android {
     namespace = "com.example.team_chai_and_code"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "26.1.10909125"
+    // Use the valid NDK already installed on the development machine. The
+    // previously pinned 26.1 copy is incomplete (missing source.properties).
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

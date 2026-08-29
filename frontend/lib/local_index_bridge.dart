@@ -57,6 +57,15 @@ class LocalIndexBridge implements LocalIndexClient {
     }
   }
 
+  Future<Map<String, dynamic>> openUri(String uri) async {
+    final result = await _channel.invokeMapMethod<String, dynamic>('openUri', {'uri': uri});
+    if (result == null) {
+      throw PlatformException(
+          code: 'empty_result', message: 'OpenUri operation returned no result');
+    }
+    return Map<String, dynamic>.from(result);
+  }
+
   Future<Map<String, dynamic>> _invokeMap(
       String method, Map<String, dynamic> record) async {
     try {
