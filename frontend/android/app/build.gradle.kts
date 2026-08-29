@@ -9,6 +9,7 @@ dependencies {
     implementation("androidx.appsearch:appsearch:1.1.0")
     implementation("androidx.appsearch:appsearch-local-storage:1.1.0")
     implementation("com.google.mediapipe:tasks-text:1.0.0")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 }
 
 android {

@@ -12,6 +12,10 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.PluginRegistry
@@ -220,7 +224,6 @@ class LocalScannerBridge(
                     "mime_type" to mimeType,
                     "content_type" to "image_ocr",
                     "transcription" to text,
-                    "ocr_confidence" to 0.95,
                     "modified_at" to if (lastModified > 0) lastModified else System.currentTimeMillis()
                 )
                 // Upsert directly into AppSearch index
@@ -287,7 +290,6 @@ class LocalScannerBridge(
                             "content_type" to "pdf_ocr",
                             "page" to pageNum,
                             "transcription" to pageText,
-                            "ocr_confidence" to 0.92,
                             "modified_at" to if (lastModified > 0) lastModified else System.currentTimeMillis()
                         )
                         indexBridge.indexDirectly(recordMap, "image_ocr")
@@ -295,26 +297,10 @@ class LocalScannerBridge(
                     }
                 }
             }
-        } catch (e: Exception) {
-            // Fallback: read raw text if available
-            val bytes = readBytes(uri)
-            if (bytes != null) {
-                val fallbackText = String(bytes, Charsets.ISO_8859_1).filter { it.isLetterOrDigit() || it.isWhitespace() }.trim()
-                if (fallbackText.length > 20) {
-                    val recordId = sha256("$uri|$lastModified")
-                    val recordMap = mapOf(
-                        "id" to recordId,
-                        "source_uri" to uri.toString(),
-                        "display_name" to displayName,
-                        "mime_type" to "application/pdf",
-                        "content_type" to "pdf_text",
-                        "transcription" to fallbackText,
-                        "modified_at" to if (lastModified > 0) lastModified else System.currentTimeMillis()
-                    )
-                    indexBridge.indexDirectly(recordMap, "text")
-                    records.add(recordMap)
-                }
-            }
+        } catch (_: Exception) {
+            // Do not derive faux text from PDF binary data. Native text/PDF OCR
+            // must be implemented by a real local extractor before indexing.
+            return emptyList()
         } finally {
             renderer?.close()
             pfd?.close()
@@ -331,14 +317,15 @@ class LocalScannerBridge(
     }
 
     private fun runLocalOcr(bytes: ByteArray): String {
-        // Local OCR extraction runtime with CPU fallback
-        // Extracts printable character sequences from image/document bytes
-        val text = String(bytes, Charsets.ISO_8859_1)
-        val extractedTokens = text.split(Regex("[^a-zA-Z0-9]+"))
-            .filter { it.length >= 3 }
-            .take(60)
-            .joinToString(" ")
-        return if (extractedTokens.isNotBlank()) extractedTokens else "Scanned Document Content"
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?: throw IllegalArgumentException("OCR source is not a decodable image")
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        return try {
+            val result = Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap, 0)))
+            result.text.trim().also { require(it.isNotEmpty()) { "OCR returned empty text" } }
+        } finally {
+            recognizer.close()
+        }
     }
 
     private fun sha256(input: String): String {

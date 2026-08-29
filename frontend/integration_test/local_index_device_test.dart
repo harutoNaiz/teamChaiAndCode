@@ -129,7 +129,9 @@ void main() {
       'modified_at': 1789590600000,
     });
 
-    final searchResults = await index.search('$runToken Unique Identification');
+    final searchResults = await index.search(
+      RetrievalRequest(query: '$runToken Unique Identification'),
+    );
     expect(searchResults, isNotEmpty);
     final top = searchResults.first;
     expect(top['open_uri'], photoUri);
@@ -140,4 +142,3 @@ void main() {
     expect(openResult.containsKey('opened'), isTrue);
   });
 }
-

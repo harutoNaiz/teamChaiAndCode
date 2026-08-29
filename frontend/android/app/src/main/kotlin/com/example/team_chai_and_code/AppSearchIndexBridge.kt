@@ -1,6 +1,8 @@
 package com.example.team_chai_and_code
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.appsearch.app.AppSearchSchema
@@ -50,6 +52,7 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
                     "indexText" -> upsert(readRecord(call.arguments, "text"))
                     "indexOcr" -> upsert(readRecord(call.arguments, "image_ocr"))
                     "indexChatMemory" -> upsert(readRecord(call.arguments, "chat_memory"))
+                    "openUri" -> openUri(readUri(call.arguments))
                     "search" -> search(readSearchRequest(call.arguments))
                     else -> throw UnsupportedOperationException("Unknown method: ${call.method}")
                 }.also { value -> success(result, value) }
@@ -72,6 +75,18 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
             embedder.close()
         }
         executor.shutdown()
+    }
+
+    /** Used only by the scanner bridge after it has obtained an authorised URI. */
+    fun indexDirectly(record: Map<String, Any?>, defaultContentType: String): Map<String, Any?> =
+        upsert(readRecord(record, defaultContentType))
+
+    private fun openUri(uri: String): Map<String, Any?> {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uri)).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        appContext.startActivity(intent)
+        return mapOf("opened" to true, "uri" to uri)
     }
 
     private fun appSearch(): AppSearchSession {
@@ -289,6 +304,13 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
             "source_uri must be a non-empty string"
         }
         return SearchRequest(query, limit, stringSet("content_types"), stringSet("mime_types"), sourceUri as? String)
+    }
+
+    private fun readUri(arguments: Any?): String {
+        val values = arguments as? Map<*, *> ?: throw IllegalArgumentException("Arguments must be an object")
+        val uri = values["uri"] as? String ?: throw IllegalArgumentException("uri is required")
+        require(uri.isNotBlank()) { "uri is required" }
+        return uri
     }
 
     private fun success(result: MethodChannel.Result, value: Any?) {

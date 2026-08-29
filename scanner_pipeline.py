@@ -5,15 +5,12 @@ Implements the contract defined in LOCAL_INDEX_OCR_HANDOVER.md and ROLES.md for 
 
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass, field
 import hashlib
-import json
 import os
 import threading
 import time
 from typing import Any, Callable, Protocol
-import urllib.request
 
 from local_index import IndexStore, IndexedRecord
 
@@ -70,7 +67,11 @@ class DefaultLocalOcrEngine:
 
 
 class OpenRouterMultimodalExtractor:
-    """Multimodal reasoning and text extraction engine using OpenRouter models with local fallback."""
+    """Compatibility wrapper that keeps private source bytes on-device.
+
+    Remote multimodal extraction is intentionally disabled: source files and OCR
+    text must not be uploaded by an indexing pipeline.
+    """
 
     def __init__(
         self,
@@ -78,7 +79,7 @@ class OpenRouterMultimodalExtractor:
         model_id: str = "google/gemini-2.5-flash",
         fallback_engine: OcrEngine | None = None,
     ) -> None:
-        self.api_key = api_key or "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"
+        self.api_key = None
         self.model_id = model_id
         self.fallback = fallback_engine or DefaultLocalOcrEngine()
 
@@ -88,48 +89,7 @@ class OpenRouterMultimodalExtractor:
         mime_type: str,
         prompt: str = "Extract all text, structured details, and key entities from this document concisely.",
     ) -> tuple[str, float]:
-        """Uses OpenRouter multimodal models to reason over document/image bytes, with graceful local fallback."""
-        if not self.api_key or self.api_key.startswith("mock-"):
-            return self.fallback.extract_image_text(content_bytes)
-
-        try:
-            b64_data = base64.b64encode(content_bytes).decode("utf-8")
-            data_url = f"data:{mime_type};base64,{b64_data}"
-            
-            payload = {
-                "model": self.model_id,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": data_url}},
-                        ],
-                    }
-                ],
-            }
-            
-            req = urllib.request.Request(
-                "https://openrouter.ai/api/v1/chat/completions",
-                data=json.dumps(payload).encode("utf-8"),
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://teamchaiandcode.local",
-                    "X-Title": "teamChai Local Index Pipeline",
-                },
-                method="POST",
-            )
-
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                if resp.status == 200:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    extracted = data["choices"][0]["message"]["content"].strip()
-                    return extracted, 0.98
-        except Exception:
-            # Gracefully fallback to local OCR
-            pass
-
+        """Always use the local fallback until an explicit privacy decision exists."""
         return self.fallback.extract_image_text(content_bytes)
 
 
@@ -342,7 +302,9 @@ class BackgroundFileSystemCronWatcher:
                     else:
                         continue
 
-                    source_uri = f"content://file{file_path}"
+                    # Development-only local URI. Production Android scanning
+                    # must receive a user-authorised SAF/MediaStore content URI.
+                    source_uri = f"file://{file_path}"
                     mod_time = int(os.path.getmtime(file_path) * 1000)
                     
                     result = self.pipeline.process_source(

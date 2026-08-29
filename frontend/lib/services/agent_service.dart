@@ -144,7 +144,7 @@ class AgentService {
       );
     }
     try {
-      final response = await _sendToOpenRouter(session, prompt, activeModel, attachmentPath, evidence);
+      final response = await _sendToOpenRouter(session, prompt, activeModel, evidence);
       await _indexAssistantResponse(session, response);
       return response;
     } catch (error) {
@@ -171,12 +171,12 @@ class AgentService {
   }
 
   Future<ChatMessage> _sendToOpenRouter(ChatSession session, String prompt,
-      AIModelConfig model, String? attachmentPath, List<RetrievedEvidence> evidence) async {
+      AIModelConfig model, List<RetrievedEvidence> evidence) async {
     final context = _contextService.build(session);
     final messages = <Map<String, String>>[
       {'role': 'system', 'content': 'You are teamChai, a smartphone assistant. Never claim to have searched a file or read device content without the verified evidence supplied in the user turn. Use only supplied snippets for file facts and cite them as [Source: source_id].'},
       ...context.messages,
-      {'role': 'user', 'content': _promptWithEvidence(prompt, attachmentPath, evidence)},
+      {'role': 'user', 'content': _promptWithEvidence(prompt, evidence)},
     ];
     final response = await http.post(Uri.parse('https://openrouter.ai/api/v1/chat/completions'), headers: {
       'Authorization': 'Bearer $openRouterApiKey', 'Content-Type': 'application/json',
@@ -206,8 +206,8 @@ class AgentService {
       r'\b(find|search|look up|document|file|pdf|photo|image|scan|aadhaar|receipt|ocr)\b',
       caseSensitive: false).hasMatch(prompt);
 
-  String _promptWithEvidence(String prompt, String? attachmentPath, List<RetrievedEvidence> evidence) {
-    if (evidence.isEmpty) return '$prompt${attachmentPath == null ? '' : '\n[Attached: $attachmentPath]'}';
+  String _promptWithEvidence(String prompt, List<RetrievedEvidence> evidence) {
+    if (evidence.isEmpty) return prompt;
     return '$prompt\n\nVerified local retrieval evidence (use only this for device-file facts):\n'
         '${const JsonEncoder.withIndent('  ').convert(evidence.map((item) => item.toModelContext()).toList())}';
   }
