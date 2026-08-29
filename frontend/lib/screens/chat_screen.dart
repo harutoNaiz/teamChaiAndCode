@@ -119,8 +119,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  Future<void> _handleSendMessage(
-      String text, String? attachmentName, String? attachmentPath) async {
+  Future<void> _handleSendMessage(String text) async {
     if (_currentSession == null || _isGenerating) return;
 
     final userMessage = ChatMessage(
@@ -128,8 +127,6 @@ class _ChatScreenState extends State<ChatScreen> {
       role: MessageRole.user,
       content: text,
       timestamp: DateTime.now(),
-      attachmentName: attachmentName,
-      attachmentPath: attachmentPath,
     );
 
     setState(() {
@@ -145,7 +142,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final responseMessage = await AgentService.instance.sendMessage(
         session: _currentSession!,
         prompt: text,
-        attachmentPath: attachmentPath,
+        attachmentPath: null,
         modelConfig: _currentModel,
       );
 

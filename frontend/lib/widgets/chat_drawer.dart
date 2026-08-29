@@ -164,6 +164,27 @@ class _ChatDrawerState extends State<ChatDrawer> {
     );
   }
 
+  /// V4: Small icon showing session indexing state.
+  Widget _buildIndexingStateIcon(SessionIndexingState state) {
+    switch (state) {
+      case SessionIndexingState.notIndexed:
+        return const SizedBox.shrink();
+      case SessionIndexingState.indexing:
+        return const SizedBox(
+          width: 10,
+          height: 10,
+          child: CircularProgressIndicator(
+            strokeWidth: 1.5,
+            color: AppTheme.brandAccent,
+          ),
+        );
+      case SessionIndexingState.indexed:
+        return const Icon(Icons.check_circle, size: 12, color: Colors.green);
+      case SessionIndexingState.failed:
+        return const Icon(Icons.error, size: 12, color: AppTheme.dangerRed);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -341,6 +362,9 @@ class _ChatDrawerState extends State<ChatDrawer> {
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
+                                          // V4: Session indexing state icon
+                                          _buildIndexingStateIcon(session.indexingState),
+                                          const SizedBox(width: 2),
                                           PopupMenuButton<String>(
                                             icon: Icon(
                                               Icons.more_horiz,

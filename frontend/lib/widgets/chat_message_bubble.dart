@@ -1,17 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/chat_message.dart';
+import '../models/retrieved_evidence.dart';
+import '../models/file_operation_models.dart';
 import '../theme/app_theme.dart';
+import 'grounded_state_banner.dart';
+import 'evidence_list.dart';
+import 'file_operation_preview.dart';
 import 'permission_action_card.dart';
 
+/// V1+V3+V5+V6: Chat message bubble.
+/// - V1: No attachment chip display
+/// - V3: Shows GroundedStateBanner when groundedState is set
+/// - V5: Shows EvidenceList for cited evidence matched by citationIds
+/// - V6: Shows FileOperationPreview when previewManifest is set
 class ChatMessageBubble extends StatefulWidget {
   final ChatMessage message;
   final VoidCallback? onActionUpdated;
+
+  /// V5: Available evidence for citation matching
+  final List<RetrievedEvidence>? availableEvidence;
+
+  /// V6: Callbacks for file-operation preview
+  final ValueChanged<PreviewManifest>? onConfirmOperation;
+  final VoidCallback? onCancelOperation;
 
   const ChatMessageBubble({
     super.key,
     required this.message,
     this.onActionUpdated,
+    this.availableEvidence,
+    this.onConfirmOperation,
+    this.onCancelOperation,
   });
 
   @override
@@ -54,10 +74,12 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
         children: [
           Flexible(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color:
-                    isDark ? AppTheme.userBubbleDark : const Color(0xFFE9ECEF),
+                color: isDark
+                    ? AppTheme.userBubbleDark
+                    : const Color(0xFFE9ECEF),
                 borderRadius: const BorderRadius.only(
                   topLeft: Radius.circular(18),
                   topRight: Radius.circular(18),
@@ -65,42 +87,15 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
                   bottomRight: Radius.circular(4),
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (msg.attachmentName != null) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: isDark ? Colors.black26 : Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.attach_file,
-                              size: 14, color: AppTheme.brandAccent),
-                          const SizedBox(width: 4),
-                          Text(
-                            msg.attachmentName!,
-                            style: const TextStyle(
-                                fontSize: 12, fontWeight: FontWeight.w500),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  SelectableText(
-                    msg.content,
-                    style: TextStyle(
-                      fontSize: 15,
-                      height: 1.4,
-                      color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
-                    ),
-                  ),
-                ],
+              // V1: No attachment chip — plain text only
+              child: SelectableText(
+                msg.content,
+                style: TextStyle(
+                  fontSize: 15,
+                  height: 1.4,
+                  color:
+                      isDark ? AppTheme.darkTextPrimary : Colors.black87,
+                ),
               ),
             ),
           ),
@@ -112,13 +107,25 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
   Widget _buildAssistantBubble(BuildContext context, bool isDark) {
     final msg = widget.message;
 
+    // V5: Match cited evidence by identifier
+    final citedEvidence = <RetrievedEvidence>[];
+    if (widget.availableEvidence != null &&
+        msg.citationIds.isNotEmpty) {
+      for (final id in msg.citationIds) {
+        final match = widget.availableEvidence!
+            .where((e) => e.identifier == id)
+            .toList();
+        citedEvidence.addAll(match);
+      }
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
       color: Colors.transparent,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Assistant Icon / Avatar
+          // Assistant avatar
           Container(
             width: 32,
             height: 32,
@@ -131,21 +138,29 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
               borderRadius: BorderRadius.circular(16),
             ),
             child: const Center(
-              child: Icon(Icons.auto_awesome, size: 17, color: Colors.white),
+              child:
+                  Icon(Icons.auto_awesome, size: 17, color: Colors.white),
             ),
           ),
           const SizedBox(width: 12),
 
-          // Message Content Body
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Thought Process Accordion (if available)
+                // V3: Grounded state banner
+                if (msg.groundedState != null)
+                  GroundedStateBanner(
+                    state: msg.groundedState!,
+                    cloudModelName: msg.cloudModelName,
+                  ),
+
+                // Thought process accordion
                 if (msg.thoughtProcess != null &&
                     msg.thoughtProcess!.isNotEmpty) ...[
                   GestureDetector(
-                    onTap: () => setState(() => _showThoughts = !_showThoughts),
+                    onTap: () =>
+                        setState(() => _showThoughts = !_showThoughts),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 5),
@@ -159,13 +174,11 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.psychology_outlined,
-                            size: 14,
-                            color: isDark
-                                ? AppTheme.darkTextSecondary
-                                : Colors.black54,
-                          ),
+                          Icon(Icons.psychology_outlined,
+                              size: 14,
+                              color: isDark
+                                  ? AppTheme.darkTextSecondary
+                                  : Colors.black54),
                           const SizedBox(width: 6),
                           Text(
                             _showThoughts
@@ -221,17 +234,43 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
                     ),
                 ],
 
-                // Main Assistant Markdown Text
+                // Main content
                 SelectableText(
                   msg.content,
                   style: TextStyle(
                     fontSize: 15,
                     height: 1.45,
-                    color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
+                    color: isDark
+                        ? AppTheme.darkTextPrimary
+                        : Colors.black87,
                   ),
                 ),
 
-                // Tool Actions / Permission Cards
+                // V5: Citation evidence cards
+                if (citedEvidence.isNotEmpty)
+                  EvidenceList(
+                    evidences: citedEvidence,
+                    onOpen: (uri) {
+                      // Flutter surfaces the URI; native layer opens it
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Open: $uri'),
+                          duration: const Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
+                  ),
+
+                // V6: File-operation preview
+                if (msg.previewManifest != null)
+                  FileOperationPreview(
+                    manifest: msg.previewManifest!,
+                    onCancel: widget.onCancelOperation ?? () {},
+                    onConfirm: widget.onConfirmOperation ?? (_) {},
+                  ),
+
+                // Tool action cards
                 if (msg.actions.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   ...msg.actions.map((act) => PermissionActionCard(
@@ -240,23 +279,22 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
                       )),
                 ],
 
-                // Action Bar below message (Copy, etc.)
+                // Action bar
                 const SizedBox(height: 6),
                 Row(
                   children: [
                     IconButton(
-                      icon: Icon(
-                        Icons.copy_rounded,
-                        size: 15,
-                        color: isDark
-                            ? AppTheme.darkTextSecondary
-                            : Colors.black45,
-                      ),
+                      icon: Icon(Icons.copy_rounded,
+                          size: 15,
+                          color: isDark
+                              ? AppTheme.darkTextSecondary
+                              : Colors.black45),
                       tooltip: 'Copy text',
                       constraints: const BoxConstraints(),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 4, vertical: 4),
-                      onPressed: () => _copyToClipboard(context, msg.content),
+                      onPressed: () =>
+                          _copyToClipboard(context, msg.content),
                     ),
                     const SizedBox(width: 8),
                     Text(
