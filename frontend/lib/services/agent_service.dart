@@ -12,6 +12,7 @@ import 'chat_memory_index_service.dart';
 import 'chat_storage_service.dart';
 import 'conversation_context_service.dart';
 import 'retrieval_tool.dart';
+import 'local_inference_service.dart';
 
 enum AgentBackendMode { openRouterDirect, flaskBackend, localOnDevice }
 
@@ -33,6 +34,7 @@ class AgentService {
   final RetrievalTool _retrievalTool;
   final ChatMemoryIndexService _chatMemoryIndex;
   final ConversationContextService _contextService;
+  final LocalInferenceService _localInference = LocalInferenceService();
   AgentBackendMode backendMode = AgentBackendMode.openRouterDirect;
   String openRouterApiKey = '';
   String backendBaseUrl = 'http://10.0.2.2:5000';
@@ -193,7 +195,7 @@ class AgentService {
 
     final activeModel = modelConfig ?? AIModelConfig.availableModels.first;
     if (activeModel.isLocal || backendMode == AgentBackendMode.localOnDevice) {
-      return _localModelStatus(activeModel, evidence);
+      return _runLocalModel(session, prompt, activeModel, evidence);
     }
     if (backendMode == AgentBackendMode.flaskBackend)
       return _modelUnavailableMessage();
@@ -223,21 +225,58 @@ class AgentService {
     }
   }
 
-  Future<ChatMessage> _localModelStatus(
+  Future<ChatMessage> _runLocalModel(ChatSession session, String prompt,
       AIModelConfig model, List<RetrievedEvidence> evidence) async {
+    final filename = model.filename ?? 'gemma-4-E4B-it.litertlm';
     final downloaded = await LocalModelManagerService.instance
-        .isModelDownloaded(
-            model.id, model.filename ?? 'gemma-4-E4B-it.litertlm');
-    final status = downloaded
-        ? 'The local model is downloaded, but local chat inference is not wired yet.'
-        : '${model.name} is not downloaded. Download it from the model selector to prepare on-device inference.';
-    return ChatMessage(
-      id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
-      role: MessageRole.assistant,
-      content: _ensureEvidenceCitations(
-          '$status No generated answer was produced.', evidence),
-      timestamp: DateTime.now(),
-    );
+        .isModelDownloaded(model.id, filename);
+    if (!downloaded) {
+      return ChatMessage(
+        id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
+        role: MessageRole.assistant,
+        content: _ensureEvidenceCitations(
+            '${model.name} is not downloaded. Download it from the model selector to prepare on-device inference.',
+            evidence),
+        timestamp: DateTime.now(),
+      );
+    }
+    try {
+      final modelPath =
+          await LocalModelManagerService.instance.getModelFilePath(filename);
+      final conversation = _contextService.build(session);
+      final history = conversation.messages
+          .map((message) => '${message['role']}: ${message['content']}')
+          .join('\n');
+      final contextualPrompt = [
+        'You are teamChai, a helpful on-device assistant.',
+        if (history.isNotEmpty) 'Conversation history:\n$history',
+        'Current user request:\n$prompt',
+      ].join('\n\n');
+      final response = await _localInference.generate(
+        modelPath: modelPath,
+        prompt: _promptWithEvidence(contextualPrompt, evidence),
+      );
+      final message = ChatMessage(
+        id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
+        role: MessageRole.assistant,
+        content: _ensureEvidenceCitations(response, evidence),
+        timestamp: DateTime.now(),
+        thoughtProcess: 'Model: ${model.name} (LiteRT-LM on device)',
+      );
+      await _indexAssistantResponse(session, message);
+      return message;
+    } catch (error) {
+      debugPrint('Local LiteRT-LM inference failed: $error');
+      return ChatMessage(
+        id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
+        role: MessageRole.assistant,
+        content: _ensureEvidenceCitations(
+            'The downloaded local model could not be initialized: $error',
+            evidence),
+        timestamp: DateTime.now(),
+        thoughtProcess: 'LiteRT-LM initialization or generation failed.',
+      );
+    }
   }
 
   Future<ChatMessage> _sendToOpenRouter(ChatSession session, String prompt,

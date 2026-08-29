@@ -4,6 +4,9 @@
         android:label="team_chai_and_code"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- Optional delegates used by LiteRT-LM on devices that expose them. -->
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

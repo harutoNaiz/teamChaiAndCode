@@ -10,6 +10,9 @@ dependencies {
     implementation("androidx.appsearch:appsearch-local-storage:1.1.0")
     implementation("com.google.mediapipe:tasks-text:1.0.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    // Pin the stable release so builds remain reproducible (latest alpha may
+    // require a newer Kotlin compiler than the Flutter toolchain).
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
 }
 
 android {
