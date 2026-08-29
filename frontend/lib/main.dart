@@ -1,6 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'screens/chat_screen.dart';
+import 'theme/app_theme.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+    ),
+  );
   runApp(const TeamChaiAndCodeApp());
 }
 
@@ -9,6 +19,13 @@ class TeamChaiAndCodeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(home: Scaffold(body: Center(child: Text('teamChaiAndCode'))));
+    return MaterialApp(
+      title: 'teamChaiAndCode',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.dark, // ChatGPT dark-first aesthetic
+      home: const ChatScreen(),
+    );
   }
 }
