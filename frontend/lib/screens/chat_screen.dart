@@ -132,6 +132,7 @@ class _ChatScreenState extends State<ChatScreen> {
         session: _currentSession!,
         prompt: text,
         attachmentPath: attachmentPath,
+        modelConfig: _currentModel,
       );
 
       if (mounted) {

@@ -24,13 +24,6 @@ class _ChatInputBarState extends State<ChatInputBar> {
   String? _stagedAttachmentPath;
   bool _isListeningVoice = false;
 
-  final List<String> _quickSuggestions = [
-    '📄 Find internship offer letter',
-    '🧾 Scan receipt & calculate expense',
-    '📁 Organize Downloads folder',
-    '💬 Send WhatsApp summary to Rahul',
-  ];
-
   @override
   void dispose() {
     _controller.dispose();

@@ -3,8 +3,11 @@ import 'package:flutter/services.dart';
 import 'screens/chat_screen.dart';
 import 'theme/app_theme.dart';
 
-void main() {
+import 'services/agent_service.dart';
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AgentService.instance.init();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,

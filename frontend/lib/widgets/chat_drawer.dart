@@ -93,7 +93,6 @@ class _ChatDrawerState extends State<ChatDrawer> {
       }
     }
 
-    // Remove empty groups
     groups.removeWhere((key, value) => value.isEmpty);
     return groups;
   }
@@ -155,6 +154,54 @@ class _ChatDrawerState extends State<ChatDrawer> {
     );
   }
 
+  void _showApiKeyDialog() {
+    final controller = TextEditingController(text: AgentService.instance.openRouterApiKey);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('OpenRouter API Key'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter your OpenRouter key to connect DeepSeek, Llama 3.3, Claude 3.5, or Gemini directly:',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              obscureText: true,
+              decoration: const InputDecoration(
+                hintText: 'sk-or-v1-...',
+                prefixIcon: Icon(Icons.vpn_key_outlined, size: 18),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              await AgentService.instance.setOpenRouterApiKey(controller.text);
+              setState(() {});
+              if (ctx.mounted) {
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('OpenRouter API Key saved!')),
+                );
+              }
+            },
+            child: const Text('Save Key'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showModelSelectionModal() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
@@ -183,7 +230,7 @@ class _ChatDrawerState extends State<ChatDrawer> {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'Select AI Intelligence Engine',
+                  'Select OpenRouter / AI Engine',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
@@ -243,6 +290,7 @@ class _ChatDrawerState extends State<ChatDrawer> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final grouped = _groupSessionsByDate(_filteredSessions);
+    final hasApiKey = AgentService.instance.openRouterApiKey.isNotEmpty;
 
     return Drawer(
       backgroundColor: isDark ? AppTheme.darkSurface : const Color(0xFFF9F9F9),
@@ -254,7 +302,6 @@ class _ChatDrawerState extends State<ChatDrawer> {
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
               child: Column(
                 children: [
-                  // Search Bar
                   Container(
                     height: 42,
                     decoration: BoxDecoration(
@@ -295,7 +342,6 @@ class _ChatDrawerState extends State<ChatDrawer> {
                   ),
                   const SizedBox(height: 10),
 
-                  // New Chat Button
                   InkWell(
                     onTap: () {
                       Navigator.pop(context);
@@ -347,7 +393,7 @@ class _ChatDrawerState extends State<ChatDrawer> {
                   : _filteredSessions.isEmpty
                       ? Center(
                           child: Text(
-                            'No conversations found',
+                            'No conversations yet',
                             style: TextStyle(
                               color: isDark ? AppTheme.darkTextSecondary : Colors.black45,
                               fontSize: 13,
@@ -521,41 +567,29 @@ class _ChatDrawerState extends State<ChatDrawer> {
                   ),
                   const SizedBox(height: 6),
 
-                  // Backend Mode Switcher (USB standalone Mock vs Flask Server)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
+                  // OpenRouter API Key Setting
+                  InkWell(
+                    onTap: _showApiKeyDialog,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                      child: Row(
                         children: [
-                          Icon(
-                            AgentService.instance.backendMode == AgentBackendMode.mockSimulation
-                                ? Icons.phone_android_rounded
-                                : Icons.lan_outlined,
-                            size: 14,
-                            color: Colors.grey,
-                          ),
-                          const SizedBox(width: 6),
+                          Icon(Icons.key_rounded, size: 16, color: hasApiKey ? AppTheme.brandAccent : Colors.grey),
+                          const SizedBox(width: 8),
                           Text(
-                            AgentService.instance.backendMode == AgentBackendMode.mockSimulation
-                                ? 'USB Standalone Mode'
-                                : 'Flask API Connected',
-                            style: const TextStyle(fontSize: 11.5, color: Colors.grey),
+                            hasApiKey ? 'OpenRouter Key (Active)' : 'Set OpenRouter Key',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: hasApiKey ? AppTheme.brandAccent : (isDark ? AppTheme.darkTextSecondary : Colors.black54),
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
+                          const Spacer(),
+                          const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
                         ],
                       ),
-                      Switch(
-                        value: AgentService.instance.backendMode == AgentBackendMode.flaskBackend,
-                        activeColor: AppTheme.brandAccent,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        onChanged: (val) {
-                          setState(() {
-                            AgentService.instance.backendMode = val
-                                ? AgentBackendMode.flaskBackend
-                                : AgentBackendMode.mockSimulation;
-                          });
-                        },
-                      ),
-                    ],
+                    ),
                   ),
                 ],
               ),

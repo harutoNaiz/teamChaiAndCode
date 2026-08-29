@@ -1,11 +1,15 @@
 import os
 import json
 import time
+import urllib.request
+import urllib.error
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
+
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 # ==============================================================================
 # Plug-and-Play Extensible Hooks for Local LLM & Unified Device Indexing
@@ -16,7 +20,6 @@ def query_unified_index(query: str, attachment_path: str = None):
     Plug-in hook for Role C (Indexing & OCR RAG).
     Connects to local ChromaDB / SQLite-vec / Tesseract OCR.
     """
-    # Placeholder search simulation / hook
     lower = query.lower()
     if "offer letter" in lower or "internship" in lower or "pdf" in lower:
         return {
@@ -32,14 +35,72 @@ def query_unified_index(query: str, attachment_path: str = None):
         }
     return None
 
-def execute_agent_reasoning(prompt: str, compressed_memory: str, recent_history: list, model_id: str, attachment_path: str = None):
+def call_openrouter(messages: list, model: str, api_key: str = None) -> str:
     """
-    Plug-in hook for Role B (Agent Loop & LLM Router).
-    Routes to Gemini API, OpenRouter, or on-device local SLM.
+    Direct OpenRouter API Gateway
+    """
+    key = api_key or OPENROUTER_API_KEY
+    if not key:
+        return None
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://teamchaiandcode.local",
+        "X-Title": "teamChaiAndCode",
+    }
+    payload = {
+        "model": model or "deepseek/deepseek-chat",
+        "messages": messages,
+    }
+
+    try:
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            choices = data.get("choices", [])
+            if choices:
+                return choices[0].get("message", {}).get("content", "")
+    except Exception as e:
+        print(f"OpenRouter backend call failed: {e}")
+    return None
+
+def execute_agent_reasoning(prompt: str, compressed_memory: str, recent_history: list, model_id: str, attachment_path: str = None, api_key: str = None):
+    """
+    Routes to OpenRouter or smart simulation engine.
     """
     lower = prompt.lower()
     index_data = query_unified_index(prompt, attachment_path)
     actions = []
+
+    # Format messages for OpenRouter
+    messages = [
+        {
+            "role": "system",
+            "content": "You are teamChai: a smart agent for mobile devices. "
+                       "You can organize files, summarize documents, read receipts, and assist the user. "
+                       "Keep responses clean, structured, and helpful."
+        }
+    ]
+    if compressed_memory:
+        messages.append({"role": "system", "content": f"Compressed Context:\n{compressed_memory}"})
+
+    for turn in recent_history:
+        messages.append({"role": turn.get("role", "user"), "content": turn.get("content", "")})
+
+    messages.append({"role": "user", "content": prompt if not attachment_path else f"{prompt}\n[File: {attachment_path}]"})
+
+    # Try calling OpenRouter
+    openrouter_response = call_openrouter(messages, model_id, api_key)
+    if openrouter_response:
+        return {
+            "response": openrouter_response,
+            "actions": actions,
+            "thought_process": f"OpenRouter Response via {model_id}",
+        }
+
+    # Fallback / Simulated structured agent actions
     thought_process = f"Model: {model_id} | Memory Context: {len(compressed_memory)} chars | Recent History: {len(recent_history)} turns"
 
     if "offer letter" in lower or "internship" in lower or "pdf" in lower:
@@ -53,7 +114,7 @@ def execute_agent_reasoning(prompt: str, compressed_memory: str, recent_history:
             "parameters": {"query": "offer letter", "type": "pdf"},
             "result": index_data,
         })
-        
+
         if "whatsapp" in lower or "send" in lower or "share" in lower:
             actions.append({
                 "id": f"act-{int(time.time()*1000)+1}",
@@ -135,12 +196,13 @@ def get_tools():
 def chat():
     data = request.get_json(force=True) or {}
     session_id = data.get("session_id", "default")
-    model_id = data.get("model_id", "gemini-1.5-flash")
+    model_id = data.get("model_id", "deepseek/deepseek-chat")
     compressed_memory = data.get("compressed_memory", "")
     recent_history = data.get("recent_history", [])
     current_turn = data.get("current_turn", {})
     prompt = current_turn.get("prompt", "")
     attachment_path = current_turn.get("attachment_path")
+    api_key = data.get("openrouter_api_key") or OPENROUTER_API_KEY
 
     result = execute_agent_reasoning(
         prompt=prompt,
@@ -148,6 +210,7 @@ def chat():
         recent_history=recent_history,
         model_id=model_id,
         attachment_path=attachment_path,
+        api_key=api_key,
     )
 
     return jsonify(result)
