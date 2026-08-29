@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../widgets/chat_drawer.dart';
 import '../widgets/chat_message_bubble.dart';
 import '../widgets/chat_input_bar.dart';
+import '../widgets/model_selector_sheet.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -39,14 +40,25 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _initializeChat() async {
     final sessions = await ChatStorageService.instance.getSessions();
+    final savedModelId = await AgentService.instance.getSavedSelectedModelId();
+
     if (mounted) {
       setState(() {
-        if (sessions.isNotEmpty) {
-          _currentSession = sessions.first;
+        if (savedModelId != null) {
           _currentModel = AIModelConfig.availableModels.firstWhere(
-            (m) => m.id == _currentSession!.selectedModelId,
+            (m) => m.id == savedModelId,
             orElse: () => AIModelConfig.availableModels.first,
           );
+        }
+
+        if (sessions.isNotEmpty) {
+          _currentSession = sessions.first;
+          if (savedModelId == null) {
+            _currentModel = AIModelConfig.availableModels.firstWhere(
+              (m) => m.id == _currentSession!.selectedModelId,
+              orElse: () => _currentModel,
+            );
+          }
         } else {
           _createNewChat();
         }
@@ -92,6 +104,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ChatStorageService.instance.saveSession(_currentSession!);
       }
     });
+    AgentService.instance.saveSelectedModel(model.id);
   }
 
   void _scrollToBottom() {
@@ -164,102 +177,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showModelSelectorSheet() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: isDark ? AppTheme.darkCard : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.withOpacity(0.4),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Switch AI Model',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                ...AIModelConfig.availableModels.map((model) {
-                  final isSelected = model.id == _currentModel.id;
-                  return ListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                    leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? AppTheme.brandAccent.withOpacity(0.15)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        model.isLocal ? Icons.memory : Icons.auto_awesome,
-                        color: isSelected ? AppTheme.brandAccent : Colors.grey,
-                      ),
-                    ),
-                    title: Row(
-                      children: [
-                        Text(model.name,
-                            style: TextStyle(
-                                fontWeight: isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.normal)),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: model.isLocal
-                                ? Colors.purple.withOpacity(0.15)
-                                : Colors.blue.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            model.badge,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: model.isLocal
-                                  ? Colors.purpleAccent
-                                  : Colors.blueAccent,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    subtitle: Text(model.description,
-                        style: const TextStyle(fontSize: 12)),
-                    trailing: isSelected
-                        ? const Icon(Icons.check_circle,
-                            color: AppTheme.brandAccent, size: 20)
-                        : null,
-                    onTap: () {
-                      _selectModel(model);
-                      Navigator.pop(ctx);
-                    },
-                  );
-                }),
-              ],
-            ),
-          ),
-        );
-      },
+    ModelSelectorSheet.show(
+      context,
+      currentModel: _currentModel,
+      onSelectModel: _selectModel,
     );
   }
 
