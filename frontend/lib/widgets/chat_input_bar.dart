@@ -298,15 +298,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // Plus / Attachment Button (PDF/OCR Image/Camera)
-                IconButton(
-                  icon: const Icon(Icons.add_circle_outline_rounded, size: 22),
-                  color: isDark ? AppTheme.darkTextSecondary : Colors.black54,
-                  onPressed: _showAttachmentSheet,
-                  padding: const EdgeInsets.all(12),
-                  constraints: const BoxConstraints(),
-                  tooltip: 'Attach PDF / Receipt OCR',
-                ),
+                const SizedBox(width: 14),
 
                 // Text Field
                 Expanded(
