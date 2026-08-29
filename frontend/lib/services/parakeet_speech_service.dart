@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
-/// Parakeet Unified EN 0.6B Speech Recognition & Phoneme Correction Engine
+/// Placeholder for a future measured local Parakeet runtime.
+/// It never emits a fabricated transcript.
 class ParakeetSpeechService {
-  static final ParakeetSpeechService instance = ParakeetSpeechService._internal();
+  static final ParakeetSpeechService instance =
+      ParakeetSpeechService._internal();
 
   ParakeetSpeechService._internal();
 
@@ -41,28 +43,15 @@ class ParakeetSpeechService {
     'exprt': 'export',
   };
 
-  /// Simulates / processes audio stream using Parakeet Unified EN 0.6B model
+  /// Returns an explicit unavailable state until recording/transcription lands.
   Stream<String> startListening({
     required Function(String finalizedText) onFinalResult,
     required Function(String interimText) onInterimResult,
     required VoidCallback onError,
   }) {
-    _isListening = true;
     final controller = StreamController<String>.broadcast();
-
-    // Parakeet acoustic processing timeline
-    Timer(const Duration(milliseconds: 600), () {
-      if (_isListening) {
-        onInterimResult('Listening with Parakeet 0.6B...');
-      }
-    });
-
-    Timer(const Duration(milliseconds: 1400), () {
-      if (_isListening) {
-        onInterimResult('Interpreting speech...');
-      }
-    });
-
+    onError();
+    controller.close();
     return controller.stream;
   }
 
@@ -72,7 +61,8 @@ class ParakeetSpeechService {
 
     String normalized = rawInput;
     _phoneticCorrections.forEach((mispronounced, corrected) {
-      final reg = RegExp(r'\b' + RegExp.escape(mispronounced) + r'\b', caseSensitive: false);
+      final reg = RegExp(r'\b' + RegExp.escape(mispronounced) + r'\b',
+          caseSensitive: false);
       normalized = normalized.replaceAll(reg, corrected);
     });
 

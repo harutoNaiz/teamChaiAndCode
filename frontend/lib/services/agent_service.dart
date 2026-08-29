@@ -22,7 +22,10 @@ class AgentService {
   factory AgentService.withRetrievalTool(RetrievalTool retrievalTool) =>
       AgentService._internal(retrievalTool: retrievalTool);
 
-  AgentService._internal({RetrievalTool? retrievalTool, ChatMemoryIndexService? chatMemoryIndex, ConversationContextService? contextService})
+  AgentService._internal(
+      {RetrievalTool? retrievalTool,
+      ChatMemoryIndexService? chatMemoryIndex,
+      ConversationContextService? contextService})
       : _retrievalTool = retrievalTool ?? RetrievalTool(),
         _chatMemoryIndex = chatMemoryIndex ?? ChatMemoryIndexService(),
         _contextService = contextService ?? ConversationContextService();
@@ -45,7 +48,8 @@ class AgentService {
       openRouterApiKey = prefs.getString(_apiKeyStorageKey) ?? '';
     } catch (_) {}
     try {
-      await _chatMemoryIndex.syncSessions(await ChatStorageService.instance.getSessions());
+      await _chatMemoryIndex
+          .syncSessions(await ChatStorageService.instance.getSessions());
     } catch (error) {
       debugPrint('Initial chat-memory backfill failed: $error');
     }
@@ -68,7 +72,8 @@ class AgentService {
 
   Future<String?> getSavedSelectedModelId() async {
     try {
-      return (await SharedPreferences.getInstance()).getString(_selectedModelKey);
+      return (await SharedPreferences.getInstance())
+          .getString(_selectedModelKey);
     } catch (_) {
       return null;
     }
@@ -77,8 +82,11 @@ class AgentService {
   Future<List<AIModelConfig>> fetchFreeOpenRouterModels() async {
     try {
       final headers = <String, String>{};
-      if (openRouterApiKey.isNotEmpty) headers['Authorization'] = 'Bearer $openRouterApiKey';
-      final response = await http.get(Uri.parse('https://openrouter.ai/api/v1/models'), headers: headers)
+      if (openRouterApiKey.isNotEmpty)
+        headers['Authorization'] = 'Bearer $openRouterApiKey';
+      final response = await http
+          .get(Uri.parse('https://openrouter.ai/api/v1/models'),
+              headers: headers)
           .timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) return dynamicFreeModels;
       final models = (jsonDecode(response.body)['data'] as List<dynamic>? ?? [])
@@ -88,19 +96,29 @@ class AgentService {
             final id = item['id'] as String? ?? '';
             final free = id.contains(':free') ||
                 (pricing?['prompt'] == '0' || pricing?['prompt'] == 0) &&
-                    (pricing?['completion'] == '0' || pricing?['completion'] == 0);
+                    (pricing?['completion'] == '0' ||
+                        pricing?['completion'] == 0);
             if (!free || id.isEmpty) return null;
             final name = item['name'] as String? ?? id;
             return AIModelConfig(
-              id: 'or-$id', openRouterModelId: id,
+              id: 'or-$id',
+              openRouterModelId: id,
               name: name.contains('(free)') ? name : '$name (Free)',
-              description: item['description'] as String? ?? 'Free tier open model',
-              provider: ModelProvider.openRouter, isFree: true, badge: 'Free OR',
+              description:
+                  item['description'] as String? ?? 'Free tier open model',
+              provider: ModelProvider.openRouter,
+              isFree: true,
+              badge: 'Free OR',
             );
-          }).whereType<AIModelConfig>().toList();
+          })
+          .whereType<AIModelConfig>()
+          .toList();
       if (models.isNotEmpty) {
         dynamicFreeModels = models;
-        AIModelConfig.availableModels = [...AIModelConfig.localModels, ...models];
+        AIModelConfig.availableModels = [
+          ...AIModelConfig.localModels,
+          ...models
+        ];
       }
     } catch (error) {
       debugPrint('Unable to fetch free OpenRouter models: $error');
@@ -111,7 +129,6 @@ class AgentService {
   Future<ChatMessage> sendMessage({
     required ChatSession session,
     required String prompt,
-    String? attachmentPath,
     AIModelConfig? modelConfig,
     void Function(String partialText)? onStreamChunk,
   }) async {
@@ -135,37 +152,47 @@ class AgentService {
     if (activeModel.isLocal || backendMode == AgentBackendMode.localOnDevice) {
       return _localModelStatus(activeModel, evidence);
     }
-    if (backendMode == AgentBackendMode.flaskBackend) return _modelUnavailableMessage();
+    if (backendMode == AgentBackendMode.flaskBackend)
+      return _modelUnavailableMessage();
     if (openRouterApiKey.isEmpty) {
       return ChatMessage(
-        id: 'msg-${DateTime.now().millisecondsSinceEpoch}', role: MessageRole.assistant,
-        content: 'An OpenRouter API key is required for the selected cloud model. No simulated device result was generated.',
+        id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
+        role: MessageRole.assistant,
+        content:
+            'An OpenRouter API key is required for the selected cloud model. No simulated device result was generated.',
         timestamp: DateTime.now(),
       );
     }
     try {
-      final response = await _sendToOpenRouter(session, prompt, activeModel, evidence);
+      final response =
+          await _sendToOpenRouter(session, prompt, activeModel, evidence);
       await _indexAssistantResponse(session, response);
       return response;
     } catch (error) {
       debugPrint('OpenRouter direct call failed: $error');
       return ChatMessage(
-        id: 'msg-${DateTime.now().millisecondsSinceEpoch}', role: MessageRole.assistant,
-        content: 'The selected cloud model failed: $error. No simulated device result was generated.',
+        id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
+        role: MessageRole.assistant,
+        content:
+            'The selected cloud model failed: $error. No simulated device result was generated.',
         timestamp: DateTime.now(),
       );
     }
   }
 
-  Future<ChatMessage> _localModelStatus(AIModelConfig model, List<RetrievedEvidence> evidence) async {
-    final downloaded = await LocalModelManagerService.instance.isModelDownloaded(
-        model.id, model.filename ?? 'gemma-4-E4B-it.litertlm');
+  Future<ChatMessage> _localModelStatus(
+      AIModelConfig model, List<RetrievedEvidence> evidence) async {
+    final downloaded = await LocalModelManagerService.instance
+        .isModelDownloaded(
+            model.id, model.filename ?? 'gemma-4-E4B-it.litertlm');
     final status = downloaded
         ? 'The local model is downloaded, but local chat inference is not wired yet.'
         : '${model.name} is not downloaded. Download it from the model selector to prepare on-device inference.';
     return ChatMessage(
-      id: 'msg-${DateTime.now().millisecondsSinceEpoch}', role: MessageRole.assistant,
-      content: _ensureEvidenceCitations('$status No generated answer was produced.', evidence),
+      id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
+      role: MessageRole.assistant,
+      content: _ensureEvidenceCitations(
+          '$status No generated answer was produced.', evidence),
       timestamp: DateTime.now(),
     );
   }
@@ -174,27 +201,44 @@ class AgentService {
       AIModelConfig model, List<RetrievedEvidence> evidence) async {
     final context = _contextService.build(session);
     final messages = <Map<String, String>>[
-      {'role': 'system', 'content': 'You are teamChai, a smartphone assistant. Never claim to have searched a file or read device content without the verified evidence supplied in the user turn. Use only supplied snippets for file facts and cite them as [Source: source_id].'},
+      {
+        'role': 'system',
+        'content':
+            'You are teamChai, a smartphone assistant. Never claim to have searched a file or read device content without the verified evidence supplied in the user turn. Use only supplied snippets for file facts and cite them as [Source: source_id].'
+      },
       ...context.messages,
       {'role': 'user', 'content': _promptWithEvidence(prompt, evidence)},
     ];
-    final response = await http.post(Uri.parse('https://openrouter.ai/api/v1/chat/completions'), headers: {
-      'Authorization': 'Bearer $openRouterApiKey', 'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://teamchaiandcode.local', 'X-Title': 'teamChaiAndCode Mobile Agent',
-    }, body: jsonEncode({'model': model.openRouterModelId, 'messages': messages}))
+    final response = await http
+        .post(Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
+            headers: {
+              'Authorization': 'Bearer $openRouterApiKey',
+              'Content-Type': 'application/json',
+              'HTTP-Referer': 'https://teamchaiandcode.local',
+              'X-Title': 'teamChaiAndCode Mobile Agent',
+            },
+            body: jsonEncode(
+                {'model': model.openRouterModelId, 'messages': messages}))
         .timeout(const Duration(seconds: 30));
-    if (response.statusCode != 200) throw Exception('HTTP ${response.statusCode}: ${response.body}');
-    final choices = jsonDecode(response.body)['choices'] as List<dynamic>? ?? [];
-    final reply = choices.isEmpty ? 'The model returned no content.' :
-        (choices.first['message']['content'] as String? ?? 'The model returned no content.');
+    if (response.statusCode != 200)
+      throw Exception('HTTP ${response.statusCode}: ${response.body}');
+    final choices =
+        jsonDecode(response.body)['choices'] as List<dynamic>? ?? [];
+    final reply = choices.isEmpty
+        ? 'The model returned no content.'
+        : (choices.first['message']['content'] as String? ??
+            'The model returned no content.');
     return ChatMessage(
-      id: 'msg-${DateTime.now().millisecondsSinceEpoch}', role: MessageRole.assistant,
-      content: _ensureEvidenceCitations(reply, evidence), timestamp: DateTime.now(),
+      id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
+      role: MessageRole.assistant,
+      content: _ensureEvidenceCitations(reply, evidence),
+      timestamp: DateTime.now(),
       thoughtProcess: 'Model: ${model.openRouterModelId} (OpenRouter)',
     );
   }
 
-  Future<void> _indexAssistantResponse(ChatSession session, ChatMessage response) async {
+  Future<void> _indexAssistantResponse(
+      ChatSession session, ChatMessage response) async {
     try {
       await _chatMemoryIndex.indexMessage(session, response);
     } catch (error) {
@@ -203,8 +247,9 @@ class AgentService {
   }
 
   bool _needsRetrieval(String prompt) => RegExp(
-      r'\b(find|search|look up|document|file|pdf|photo|image|scan|aadhaar|receipt|ocr)\b',
-      caseSensitive: false).hasMatch(prompt);
+          r'\b(find|search|look up|document|file|pdf|photo|image|scan|aadhaar|receipt|ocr)\b',
+          caseSensitive: false)
+      .hasMatch(prompt);
 
   String _promptWithEvidence(String prompt, List<RetrievedEvidence> evidence) {
     if (evidence.isEmpty) return prompt;
@@ -212,27 +257,38 @@ class AgentService {
         '${const JsonEncoder.withIndent('  ').convert(evidence.map((item) => item.toModelContext()).toList())}';
   }
 
-  String _ensureEvidenceCitations(String response, List<RetrievedEvidence> evidence) {
-    if (evidence.isEmpty || evidence.any((item) => response.contains(item.identifier))) return response;
+  String _ensureEvidenceCitations(
+      String response, List<RetrievedEvidence> evidence) {
+    if (evidence.isEmpty ||
+        evidence.any((item) => response.contains(item.identifier)))
+      return response;
     return '$response\n\nSources retrieved for this answer:\n${evidence.map((item) => '- ${item.citation}').join('\n')}';
   }
 
   ChatMessage _noEvidenceMessage(String prompt) => ChatMessage(
-      id: 'msg-search-empty-${DateTime.now().millisecondsSinceEpoch}', role: MessageRole.assistant,
-      content: 'I searched the local index, but found no matching authorised content for “$prompt”. I have not read or inferred details from a file.',
-      timestamp: DateTime.now(), thoughtProcess: 'Local retrieval completed with 0 ranked results.');
+      id: 'msg-search-empty-${DateTime.now().millisecondsSinceEpoch}',
+      role: MessageRole.assistant,
+      content:
+          'I searched the local index, but found no matching authorised content for “$prompt”. I have not read or inferred details from a file.',
+      timestamp: DateTime.now(),
+      thoughtProcess: 'Local retrieval completed with 0 ranked results.');
   ChatMessage _retrievalFailureMessage(RetrievalException error) => ChatMessage(
-      id: 'msg-search-error-${DateTime.now().millisecondsSinceEpoch}', role: MessageRole.assistant,
-      content: 'I could not search local content: ${error.message}. No file or OCR result was used.',
-      timestamp: DateTime.now(), thoughtProcess: 'Local retrieval failed (${error.failure.name}).');
+      id: 'msg-search-error-${DateTime.now().millisecondsSinceEpoch}',
+      role: MessageRole.assistant,
+      content:
+          'I could not search local content: ${error.message}. No file or OCR result was used.',
+      timestamp: DateTime.now(),
+      thoughtProcess: 'Local retrieval failed (${error.failure.name}).');
   ChatMessage _modelUnavailableMessage() => ChatMessage(
-      id: 'msg-model-error-${DateTime.now().millisecondsSinceEpoch}', role: MessageRole.assistant,
-      content: 'The selected model backend is unavailable. I did not generate a simulated device result.', timestamp: DateTime.now());
+      id: 'msg-model-error-${DateTime.now().millisecondsSinceEpoch}',
+      role: MessageRole.assistant,
+      content:
+          'The selected model backend is unavailable. I did not generate a simulated device result.',
+      timestamp: DateTime.now());
 
   Future<bool> executeAction(AgentAction action) async {
-    action.status = ActionStatus.executing;
-    await Future.delayed(const Duration(milliseconds: 500));
-    action.status = ActionStatus.completed;
-    return true;
+    action.status = ActionStatus.failed;
+    action.errorMessage = 'Android actions are not wired in this build.';
+    return false;
   }
 }

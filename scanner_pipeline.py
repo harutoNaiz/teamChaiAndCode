@@ -36,7 +36,11 @@ class OcrEngine(Protocol):
 
 
 class DefaultLocalOcrEngine:
-    """Offline local OCR runtime adapter with Snapdragon NPU acceleration and CPU fallback."""
+    """Adapter for an explicitly supplied local OCR runtime.
+
+    The Python pipeline is a development harness, not an Android OCR runtime.  It
+    must never turn arbitrary image/PDF bytes into purported OCR text.
+    """
 
     def __init__(self, backend_runner: Callable[[str | bytes], tuple[str, float]] | None = None) -> None:
         self._backend = backend_runner
@@ -45,9 +49,9 @@ class DefaultLocalOcrEngine:
             is_local=True,
             context_limit=4096,
             supported_tasks=["ocr", "transcription", "page_ocr"],
-            is_available=True,
-            acceleration="snapdragon_npu_with_cpu_fallback",
-            failure_reason=None,
+            is_available=backend_runner is not None,
+            acceleration="test_or_host_backend" if backend_runner else "unavailable",
+            failure_reason=None if backend_runner else "No host OCR backend has been configured",
         )
 
     @property
@@ -57,12 +61,6 @@ class DefaultLocalOcrEngine:
     def extract_image_text(self, source_path_or_bytes: str | bytes) -> tuple[str, float]:
         if self._backend:
             return self._backend(source_path_or_bytes)
-        if isinstance(source_path_or_bytes, str) and os.path.exists(source_path_or_bytes):
-            with open(source_path_or_bytes, "rb") as f:
-                content = f.read().decode("utf-8", errors="ignore")
-                return content.strip(), 0.95
-        if isinstance(source_path_or_bytes, bytes):
-            return source_path_or_bytes.decode("utf-8", errors="ignore").strip(), 0.95
         return "", 0.0
 
 
@@ -260,7 +258,11 @@ class LocalScannerPipeline:
 
 
 class BackgroundFileSystemCronWatcher:
-    """Background cron watcher that observes filesystem directories and indexes incoming files into vector memory."""
+    """Development-only filesystem watcher used by host tests.
+
+    It is intentionally not an Android background worker and must not be used
+    as a substitute for SAF/MediaStore permission-aware indexing on device.
+    """
 
     def __init__(
         self,

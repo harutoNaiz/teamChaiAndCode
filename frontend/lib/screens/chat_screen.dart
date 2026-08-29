@@ -142,7 +142,6 @@ class _ChatScreenState extends State<ChatScreen> {
       final responseMessage = await AgentService.instance.sendMessage(
         session: _currentSession!,
         prompt: text,
-        attachmentPath: null,
         modelConfig: _currentModel,
       );
 

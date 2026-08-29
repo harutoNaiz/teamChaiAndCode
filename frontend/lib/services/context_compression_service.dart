@@ -19,7 +19,6 @@ class ContextCompressionService {
   Map<String, dynamic> buildOptimizedPayload({
     required ChatSession session,
     required String newPrompt,
-    String? attachmentPath,
   }) {
     final allMessages = session.messages;
 
@@ -46,7 +45,6 @@ class ContextCompressionService {
           .toList(),
       'current_turn': {
         'prompt': newPrompt,
-        'attachment_path': attachmentPath,
         'timestamp': DateTime.now().toIso8601String(),
       },
       'system_instructions': _getSystemPrompt(),

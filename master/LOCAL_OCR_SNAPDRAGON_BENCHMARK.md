@@ -1,4 +1,4 @@
-# Local OCR & Snapdragon Runtime Evaluation Benchmark
+# Local OCR & Snapdragon Runtime Evaluation Benchmark (proposal; not measured)
 
 **Author:** Suprith (Local Intelligence & Snapdragon Research)  
 **Status:** Approved Reference Design  
@@ -8,7 +8,10 @@
 
 ## 1. Executive Summary
 
-This document fulfills the evaluation and benchmark deliverables assigned to Suprith in [`ROLES.md`](./ROLES.md) and [`../handovers/LOCAL_INDEX_OCR_HANDOVER.md`](../handovers/LOCAL_INDEX_OCR_HANDOVER.md). It reports:
+This is a proposed evaluation plan, not an empirical benchmark. The values below
+must not be treated as device results until a reproducible Android test run has
+recorded them. It supports the evaluation deliverables assigned to Suprith in
+[`ROLES.md`](./ROLES.md) and [`../handovers/LOCAL_INDEX_OCR_HANDOVER.md`](../handovers/LOCAL_INDEX_OCR_HANDOVER.md).
 1. An empirical evaluation of offline on-device OCR engines across camera photos, gallery images, and scanned PDF pages.
 2. Snapdragon acceleration evaluation (Qualcomm AI Engine / QNN / Hexagon NPU) compared to portable ARM CPU fallbacks.
 3. The selected local OCR and model runtime adapter architecture with metadata contracts and graceful fallback behavior.

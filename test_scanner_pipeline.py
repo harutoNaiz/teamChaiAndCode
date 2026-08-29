@@ -16,7 +16,14 @@ from scanner_pipeline import (
 class TestScannerPipeline(unittest.TestCase):
     def setUp(self):
         self.index = LocalTextIndex()
-        self.pipeline = LocalScannerPipeline(index_store=self.index)
+        # Host fixtures use an injected test backend. The production Python
+        # adapter intentionally has no byte-decoding OCR fallback.
+        def fixture_ocr(source):
+            raw = source if isinstance(source, bytes) else open(source, "rb").read()
+            return raw.decode("utf-8"), 0.95
+
+        self.ocr = DefaultLocalOcrEngine(backend_runner=fixture_ocr)
+        self.pipeline = LocalScannerPipeline(index_store=self.index, ocr_engine=self.ocr)
         self.test_dir = tempfile.mkdtemp()
 
     def tearDown(self):
@@ -128,7 +135,7 @@ class TestScannerPipeline(unittest.TestCase):
 
     def test_multimodal_extractor_fallback(self):
         """Tests the OpenRouter multimodal extractor with graceful fallback."""
-        extractor = OpenRouterMultimodalExtractor(api_key="mock-key")
+        extractor = OpenRouterMultimodalExtractor(api_key="mock-key", fallback_engine=self.ocr)
         text, conf = extractor.reason_and_extract(b"Sample multimodal document text", "image/png")
         self.assertIn("Sample multimodal document text", text)
         self.assertGreater(conf, 0.0)

@@ -273,10 +273,10 @@ preview manifest.
 | Typed retrieval-to-agent boundary | Present. File-like prompts retrieve before cloud completion and pass selected evidence/provenance; failure/no-result states are explicit. |
 | Chat context to LLM | Present with a bounded full-session builder: all active turns are sent when they fit the budget; older turns retain stable-ID transcript context when compacted. Model/device verification remains pending. |
 | Chat-memory index | Present for stored sessions and new agent responses through `chat_memory` records. Cross-session privacy policy/filtering and device verification remain pending. |
-| OCR/scanner/PDF extraction | SAF picker/bridge scaffolding is present, but no measured OCR runtime is wired. It returns an explicit failure rather than fabricated OCR until local ML Kit/runtime integration lands. |
+| OCR/scanner/PDF extraction | SAF picker and native bridge are present. Images and rendered PDF pages use local ML Kit text recognition; failures and empty extraction return no indexed record. It still lacks Android device/benchmark evidence, recursive managed-folder scanning, and production background scheduling. |
 | Background watcher and burst index | Not implemented. |
-| Parakeet audio transcription | UI/service scaffold only; it currently simulates voice status/sample text and does not record or transcribe audio. |
-| Upload control | Srividya's branch removes the visible add/upload affordance, but stale attachment simulation code must be removed as part of the UI cleanup acceptance test. |
+| Parakeet audio transcription | UI/service scaffold only. It reports that recording/transcription is unavailable rather than fabricating a transcript; no recorder or Parakeet runtime is wired. |
+| Upload control | The visible upload affordance and attachment parameter have been removed. Source files are selected through Android's authorised picker and are not sent to the cloud model. |
 | Actions (notes, files, messages, alarms) | Not implemented as real Android actions; only UI/action placeholders exist. |
 | File-operation planner/executor | Typed planner/executor primitives exist with deterministic candidate manifests and version checks. They are not connected to a real SAF/MediaStore capability adapter, persistent audit store, or device tests, so mutations remain disabled. |
 
