@@ -14,6 +14,12 @@ class ChatMemoryIndexService {
     }
   }
 
+  Future<void> syncSessions(Iterable<ChatSession> sessions) async {
+    for (final session in sessions) {
+      await syncSession(session);
+    }
+  }
+
   Future<void> indexMessage(ChatSession session, ChatMessage message) async {
     if (message.content.trim().isEmpty) return;
     final uri = 'chat://session/${Uri.encodeComponent(session.id)}/message/${Uri.encodeComponent(message.id)}';

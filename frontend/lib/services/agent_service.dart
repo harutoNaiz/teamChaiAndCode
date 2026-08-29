@@ -9,6 +9,7 @@ import '../models/chat_session.dart';
 import '../models/retrieved_evidence.dart';
 import 'local_model_manager_service.dart';
 import 'chat_memory_index_service.dart';
+import 'chat_storage_service.dart';
 import 'conversation_context_service.dart';
 import 'retrieval_tool.dart';
 
@@ -43,6 +44,11 @@ class AgentService {
       final prefs = await SharedPreferences.getInstance();
       openRouterApiKey = prefs.getString(_apiKeyStorageKey) ?? '';
     } catch (_) {}
+    try {
+      await _chatMemoryIndex.syncSessions(await ChatStorageService.instance.getSessions());
+    } catch (error) {
+      debugPrint('Initial chat-memory backfill failed: $error');
+    }
   }
 
   Future<void> setOpenRouterApiKey(String key) async {

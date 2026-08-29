@@ -30,4 +30,19 @@ void main() {
     expect(index.records.single['content_type'], 'chat_memory');
     expect(index.records.single['source_uri'], contains('chat://session/session%20one/message/m1'));
   });
+
+  test('backfills every locally retained session', () async {
+    final first = ChatSession(id: 'first', title: 'First', createdAt: DateTime(2026), updatedAt: DateTime(2026));
+    final second = ChatSession(id: 'second', title: 'Second', createdAt: DateTime(2026), updatedAt: DateTime(2026));
+    first.addMessage(ChatMessage(id: 'one', role: MessageRole.user, content: 'First memory', timestamp: DateTime(2026)));
+    second.addMessage(ChatMessage(id: 'two', role: MessageRole.user, content: 'Second memory', timestamp: DateTime(2026)));
+    final index = RecordingIndex();
+
+    await ChatMemoryIndexService(index: index).syncSessions([first, second]);
+
+    expect(index.records.map((item) => item['source_uri']), containsAll([
+      contains('chat://session/first/message/one'),
+      contains('chat://session/second/message/two'),
+    ]));
+  });
 }
