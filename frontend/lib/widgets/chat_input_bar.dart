@@ -21,8 +21,6 @@ class ChatInputBar extends StatefulWidget {
 class _ChatInputBarState extends State<ChatInputBar> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
-  String? _stagedAttachmentName;
-  String? _stagedAttachmentPath;
   bool _isListeningVoice = false;
   String _voiceInterimStatus = '';
 
@@ -35,115 +33,19 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
   void _handleSend() {
     final text = _controller.text.trim();
-    if (text.isEmpty && _stagedAttachmentName == null) return;
+    if (text.isEmpty) return;
 
     widget.onSendMessage(
-      text.isEmpty ? 'Process attached document' : text,
-      _stagedAttachmentName,
-      _stagedAttachmentPath,
+      text,
+      null,
+      null,
     );
 
     _controller.clear();
     setState(() {
-      _stagedAttachmentName = null;
-      _stagedAttachmentPath = null;
       _isListeningVoice = false;
       _voiceInterimStatus = '';
     });
-  }
-
-  void _showAttachmentSheet() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: isDark ? AppTheme.darkCard : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withOpacity(0.4),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Add Document / Vision OCR Data',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-                ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppTheme.brandAccent.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.picture_as_pdf_rounded, color: AppTheme.brandAccent),
-                  ),
-                  title: const Text('Pick PDF / Document'),
-                  subtitle: const Text('Search & extract local file content'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    setState(() {
-                      _stagedAttachmentName = 'Google_SWE_Intern_2026.pdf';
-                      _stagedAttachmentPath = 'Documents/Offer_Letters/Google_SWE_Intern_2026.pdf';
-                    });
-                  },
-                ),
-                ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.blueAccent.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.receipt_long_rounded, color: Colors.blueAccent),
-                  ),
-                  title: const Text('Pick Receipt / Screenshot (OCR)'),
-                  subtitle: const Text('Extract tables, text & numbers via on-device OCR'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    setState(() {
-                      _stagedAttachmentName = 'Swiggy_Bill_Aug28.jpg';
-                      _stagedAttachmentPath = 'DCIM/Screenshots/Swiggy_Bill_Aug28.jpg';
-                    });
-                  },
-                ),
-                ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.purpleAccent.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.camera_alt_rounded, color: Colors.purpleAccent),
-                  ),
-                  title: const Text('Take Camera Photo'),
-                  subtitle: const Text('Instant multimodal capture and analysis'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    setState(() {
-                      _stagedAttachmentName = 'Camera_Snapshot.jpg';
-                      _stagedAttachmentPath = 'DCIM/Camera/IMG_20260829.jpg';
-                    });
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
   }
 
   void _toggleParakeetVoiceInput() {
@@ -213,7 +115,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final hasText = _controller.text.trim().isNotEmpty || _stagedAttachmentName != null;
+    final hasText = _controller.text.trim().isNotEmpty;
 
     return Container(
       padding: const EdgeInsets.only(left: 10, right: 10, bottom: 12, top: 8),
@@ -246,39 +148,6 @@ class _ChatInputBarState extends State<ChatInputBar> {
                   GestureDetector(
                     onTap: _toggleParakeetVoiceInput,
                     child: const Text('Stop', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.redAccent)),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          // Attachment staging preview if selected
-          if (_stagedAttachmentName != null) ...[
-            Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFEEF2FF),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppTheme.brandAccent.withOpacity(0.4)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.attachment, size: 16, color: AppTheme.brandAccent),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _stagedAttachmentName!,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () => setState(() {
-                      _stagedAttachmentName = null;
-                      _stagedAttachmentPath = null;
-                    }),
-                    child: const Icon(Icons.close, size: 16, color: Colors.grey),
                   ),
                 ],
               ),

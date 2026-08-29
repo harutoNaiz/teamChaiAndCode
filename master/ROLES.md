@@ -1,54 +1,145 @@
 # Team ownership and delivery plan
 
-## Shared starting point
+## Shared baseline
 
-The app currently has a working Android chat shell with conversation context, model selection, and real OpenRouter responses. A native local index also exists, but it only searches records explicitly inserted into it. The next release is to connect phone content to grounded chat responses.
+`main` contains the merged work from Tushar, Srividya, and Suprith as of
+2026-08-29. It is a local clean baseline until the owner approves a push.
+Read [`ARCHITECTURE.md`](ARCHITECTURE.md) before implementation: it distinguishes
+working code from scaffolds and defines the only stable contracts.
 
-Work in this order. A contributor picks the next uncompleted item in their section, keeps the stated boundary, and adds evidence before merge.
+Each owner works on the named paths and public contract only. Do not edit
+another owner's implementation path except for a small, agreed contract change.
+Each task must include tests and an evidence note in its pull request.
 
-## Vidya — app shell and grounded agent experience
+## Vidya — conversation product and grounded presentation
 
-**Current ownership:** Flutter chat, conversations, model choice, loading/error states, tool previews, and result cards.
+**Owns:** `frontend/lib/screens/`, `frontend/lib/widgets/`,
+`frontend/lib/models/chat_*`, `frontend/lib/services/chat_storage_service.dart`,
+and UI tests. Vidya does not implement Android indexing, OCR, vectors, or model
+provider transport.
 
-### Next tasks
+### Work packages
 
-1. Add a stable chat-facing retrieval boundary: chat can request a search and receive a list of source-backed results without knowing how Android indexing works.
-2. Render retrieved documents/photos as cards with title, source type, snippet, and location. A model answer must visibly cite the result it used.
-3. Replace silent simulated fallbacks with an explicit offline/error state. The UI must never make a fake file/OCR/action result look real.
-4. Keep model selection provider-agnostic: cloud, local, and unavailable models must have clear status.
+1. **Remove upload-era UI completely.** Remove attachment state, picker sheets,
+   attachment-only prompts, and fake paths from the chat input/message surfaces.
+   Retain text entry and a clearly labelled recording entry point only when the
+   native recording contract exists.
+2. **Grounded evidence presentation.** Add reusable source cards for document,
+   image, PDF page, audio segment, and chat-memory evidence. Show title, kind,
+   snippet, page/time segment, citation ID, availability, and open action.
+3. **Conversation persistence presentation.** Preserve full local sessions and
+   message IDs in Markdown storage; expose session-level indexing status without
+   building the index itself.
+4. **Whole-session UI states.** Show provider/privacy state, retrieval in
+   progress, no-result, permission-revoked, indexing-progress, and model-error
+   states. No placeholder result may look completed.
+5. **Grounded answer rendering.** Parse source citations from agent responses,
+   connect them to supplied evidence cards, and show a visible uncited-warning
+   for an answer that claims a device fact without evidence.
 
-**Acceptance:** With supplied mock retrieval results, a question shows source cards and an answer that cites one; a failed model request shows an error rather than a fabricated answer.
+### Acceptance
 
-## Suprith — local OCR, scanner, and Snapdragon capability
+With mocked `Evidence` values, a file question shows citation-linked cards and
+open availability. With no result, a model failure, or a revoked source, the UI
+shows the correct state and no fake file/OCR/action detail. The input contains
+no upload picker or synthetic attachment path.
 
-**Current ownership:** the phone-content ingestion side: discovery, OCR, and local-model investigation. The existing remote `ocr-branch` contains lint/setup changes only; OCR scanning is still unimplemented.
+## Suprith — authorised ingestion, OCR/audio, and device acceleration
 
-### Next tasks
+**Owns:** new Android-native ingestion/extraction code under
+`frontend/android/app/src/main/kotlin/.../ingestion/`,
+`.../extraction/`, `.../workers/`, Android permissions/manifest entries,
+recording/transcription integration, and Android device tests. Suprith writes
+through `CatalogWriter` only; he does not alter Flutter chat UI or ranking.
 
-1. Implement Android-safe source selection/discovery using Storage Access Framework or MediaStore, with a clear permission state.
-2. Connect the selected local OCR engine to photos and scanned-PDF pages. Measure accuracy, latency, package size, and supported scripts on the target phone.
-3. Send each successful OCR result to the existing index using the JSON contract in [`../handovers/LOCAL_INDEX_OCR_HANDOVER.md`](../handovers/LOCAL_INDEX_OCR_HANDOVER.md). Preserve source URI, display name, page, MIME type, transcription, and confidence.
-4. Report a portable local-model/Snapdragon runtime choice with a CPU fallback. Do not wire an unmeasured model into chat.
+### Work packages
 
-**Acceptance:** Choose a phone folder, scan at least one photo and one PDF page, index their extracted text, then search and open the original source from the result.
+1. **Authorised source discovery.** Implement SAF tree/document selection and
+   MediaStore discovery with persisted URI permission, source metadata, and
+   explicit permission/revocation states.
+2. **Shared source pipeline.** Implement a `SourceRecord` change stream used by
+   both scheduled incremental work and user-started burst indexing. Deduplicate
+   by URI plus content version; support pause, resume, cancel, and progress.
+3. **Text/PDF/OCR extraction.** Extract native document/PDF text; render scanned
+   PDF pages when needed; run measured local image/PDF OCR; emit typed
+   `ExtractionRecord` success/failure with page and confidence.
+4. **Audio capture and transcription.** Record local meetings, preserve a local
+   recording URI, run a real measured Parakeet-compatible local transcription
+   runtime, and emit time-coded `audio_transcript` segments. Remove current
+   simulated Parakeet output as part of this package.
+5. **Target-device runtime study.** Benchmark OCR, transcription, and embedding
+   candidate runtimes on the Snapdragon Gen 5 target: accuracy/recall, latency,
+   package size, RAM, battery, NPU/GPU/CPU path, and CPU fallback. Publish the
+   chosen runtime only after evidence.
 
-## Tushar — retrieval quality and agent retrieval tool
+### Acceptance
 
-**Current ownership:** indexed access, retrieval ranking, provenance contracts, and the bridge from retrieved evidence to the agent.
+On an Android device, an authorised poorly named photo and page 2 of a PDF are
+extracted, persisted via `CatalogWriter`, indexed, retrieved, and opened with
+the original URI. A recorded meeting yields a local time-coded transcript that
+is searchable. New and burst sources use the same pipeline; no content is
+uploaded.
 
-### Next tasks
+## Tushar — catalog/index, retrieval, and agent evidence coordinator
 
-1. Replace the current keyword-only retrieval approach with a local semantic/vector-capable index while preserving the existing source/provenance record contract.
-2. Add ranking, snippets, filters, re-indexing, and failure states for document text and OCR records.
-3. Expose retrieval as a typed agent tool: query in, ranked evidence out. The model receives only the selected snippets and provenance.
-4. Create integration tests covering poorly named PDF/photo discovery, OCR text search, stale-record replacement, and provenance returned to chat.
+**Owns:** `frontend/lib/services/retrieval_tool.dart`,
+`frontend/lib/models/retrieved_evidence.dart`,
+`frontend/lib/services/agent_service.dart`, `local_index.py`, `app.py`, and new
+Android-native code under `.../catalog/` and `.../retrieval/`. Tushar does not
+edit input/UI widgets, picker/OCR workers, or recording UI.
 
-**Acceptance:** A query for Aadhaar-style details finds a poorly named indexed PDF or photo by its extracted text and returns a source-backed result suitable for the chat layer.
+### Work packages
 
-## Shared integration milestones
+1. **Production catalog.** Replace preference-only record linkage with a private
+   local catalog for `SourceRecord`, `ExtractionRecord`, and vector metadata.
+   Provide `CatalogWriter`; preserve source/page stale replacement, availability,
+   and migration from existing AppSearch records. Generate CSV only as an export.
+2. **Hybrid retrieval.** Complete lexical/vector ranking, content/MIME/source
+   filters, snippets, source availability filtering, and bounded evidence
+   selection. Validate the current semantic implementation on device and use
+   Suprith's measured runtime decision rather than an unmeasured model.
+3. **Full-session context.** Add `ConversationContext` with a documented token
+   budget: preserve a complete local transcript, send recent turns verbatim,
+   compact/select older turns with stable message IDs, and send selected local
+   evidence only for content queries.
+4. **Chat-memory indexing.** After a session is persisted, create/update
+   provenance-bearing `chat_memory` extraction records for important messages.
+   Support cross-session retrieval without leaking unrelated private content.
+5. **Evidence-to-model coordinator.** Detect retrieval intent, retrieve before
+   completion, select snippets/provenance only, require citation IDs in the
+   response, and return typed no-result/index/model failures. Do not implement
+   Android mutations here.
+6. **Test suite and compatibility.** Add unit, Flutter integration, and Android
+   device tests for poorly named files, PDF pages, OCR, audio, chat memory,
+   stale replacement, filters, revoked URI, and no-file-to-model behavior.
 
-1. **Grounded search:** scanner/OCR inserts records; retrieval returns ranked source-backed evidence; chat renders it.
-2. **Grounded answer:** agent searches before answering a file question, gives the model only retrieved evidence, and cites the chosen source.
-3. **Safe action:** model produces a structured note draft from retrieved evidence; user previews and confirms it; Android creates the note.
+### Acceptance
 
-Do not begin real file move/delete, messages, or alarms until milestone 2 is demonstrated end-to-end.
+An Aadhaar-style query finds a poorly named indexed source by its extraction,
+the model request contains only selected evidence text/provenance, and the
+rendered answer identifies an openable cited source. A fact in an older or
+different chat session is returned as `chat_memory` evidence with source
+metadata, not silently injected into the model context.
+
+## Integration order
+
+1. Tushar lands stable `CatalogWriter`, `Evidence`, and context contracts with
+   fake implementations for tests.
+2. Vidya consumes the fake contracts for UI and removes all upload simulation.
+3. Suprith writes real discovery/extraction output through `CatalogWriter` and
+   proves it on a device.
+4. Tushar enables hybrid retrieval and model evidence selection against those
+   real records.
+5. Vidya enables the source-card/open UI against the final evidence contract.
+6. Only after grounded search and answer acceptance: propose a structured note
+   action, show its preview, confirm, then create it natively.
+
+## Cross-team rules
+
+* Do not claim OCR, Parakeet transcription, local inference, Snapdragon
+  acceleration, watcher indexing, or actions are complete without device proof.
+* Do not introduce a second OCR store or send source files to a cloud model.
+* Do not call Android background work a cron job; use Android-supported
+  scheduling and document its constraints.
+* Keep original user data and generated indexes out of Git. Synthetic test
+  fixtures require team approval before being committed.

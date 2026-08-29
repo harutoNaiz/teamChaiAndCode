@@ -44,7 +44,7 @@ class AppTheme {
       drawerTheme: const DrawerThemeData(
         backgroundColor: darkSurface,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: darkCard,
         elevation: 0,
         shape: RoundedRectangleBorder(
@@ -101,7 +101,7 @@ class AppTheme {
       drawerTheme: const DrawerThemeData(
         backgroundColor: Color(0xFFF9F9F9),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: const Color(0xFFF7F7F8),
         elevation: 0,
         shape: RoundedRectangleBorder(

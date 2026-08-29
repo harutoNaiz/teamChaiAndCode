@@ -24,14 +24,17 @@ class LocalIndexBridge implements LocalIndexClient {
   static const MethodChannel _channel =
       MethodChannel('teamChaiAndCode/local_index');
 
+  @override
   Future<Map<String, dynamic>> indexText(Map<String, dynamic> record) async {
     return _invokeMap('indexText', record);
   }
 
+  @override
   Future<Map<String, dynamic>> indexOcr(Map<String, dynamic> record) async {
     return _invokeMap('indexOcr', record);
   }
 
+  @override
   Future<List<Map<String, dynamic>>> search(RetrievalRequest request) async {
     try {
       final rawResults = await _channel.invokeListMethod<dynamic>(

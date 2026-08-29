@@ -1,109 +1,191 @@
-# Android architecture and scope
+# Android grounded-memory architecture
 
-## Product target
+## Product contract
 
-Build an Android-only agent that can hold a conversation, retrieve information from the user’s indexed device content, and carry out approved Android actions. The first end-to-end target is:
+teamChai is an Android-only assistant that answers from the user's authorised
+device content and conversation history. It can use a cloud or local language
+model, but neither model receives an original document, image, recording, or
+the complete local index. It receives only the selected text evidence and its
+provenance. A response that uses device content must cite its source and allow
+the user to open that source.
 
-> “Create a note in structured JSON with all details on my Aadhaar card.”
+The first complete scenario is: a user asks for Aadhaar details from an old,
+poorly named PDF or photo; the app retrieves extracted text, asks a model to
+produce a structured note draft, shows the evidence and draft, and creates the
+note only after confirmation.
 
-The card may be an old PDF or photo with an unrelated filename. The agent must retrieve it from content, use extracted text, produce structured data, ask for confirmation, then save the note.
-
-## Architecture
+## Target architecture
 
 ```mermaid
 flowchart TB
   user[User]
-  ui[Flutter Android app\nChat, Search, model selector]
-  state[Conversation state\nand context]
-  agent[Agent coordinator]
-  model[Model router]
-  localModel[Local model runtime\nSnapdragon-accelerated where supported]
-  remoteModel[Remote model provider\noptional]
-  retrieval[Retrieval tool]
-  tools[Tool gateway\nconfirmation required]
-  index[Index service\nmetadata, text, embeddings]
-  extract[Content extraction\nPDF text + OCR]
-  android[Android native bridge\nPlatform channels / services]
-  sources[MediaStore, SAF, files, photos]
-  actions[Notes, alarms, file actions]
-  permissions[Permission + policy guard]
+  ui[Flutter chat shell\nconversation, citations, source cards]
+  context[Conversation context builder\ncomplete session + bounded context policy]
+  coordinator[Agent coordinator]
+  model[Selected model\ncloud or local]
+  retrieval[Typed retrieval tool\nquery + filters -> ranked evidence]
+  evidence[Evidence selector\nsmall snippets + provenance only]
+  index[Local vector + lexical index]
+  catalog[Source and extraction catalog\nprivate local database]
+  export[Optional CSV audit export]
+  watch[Incremental watcher\nWorkManager / MediaStore / SAF]
+  burst[One-time burst indexer]
+  extract[Native extraction\nPDF text, OCR, audio transcription]
+  sources[Authorised sources\nSAF, MediaStore, recordings, chat sessions]
+  action[Typed Android action gateway\npreview + confirmation]
 
-  user --> ui --> state --> agent
-  agent --> model
-  model --> localModel
-  model --> remoteModel
-  agent --> retrieval --> index --> extract --> android --> sources
-  agent --> tools --> permissions --> android --> actions
-  retrieval --> agent
-  tools --> agent
-  agent --> ui
+  user --> ui --> context --> coordinator
+  coordinator --> retrieval --> evidence --> model
+  coordinator --> model
+  retrieval --> index
+  index <--> catalog
+  catalog --> export
+  sources --> watch --> extract --> catalog
+  sources --> burst --> extract
+  extract --> index
+  ui --> action
+  coordinator --> action
+  evidence --> ui
 ```
 
-## Key boundary
-
-The Flutter app is the product shell. Device indexing, OCR access, and OS actions must run through Android-native code exposed to Flutter through platform channels or a native plugin. The current Flask service is a development companion and model/API integration surface; it cannot be the final mechanism for reading a user’s phone files or creating Android alarms.
-
-## Development API transport
-
-Use one configured base URL, never hard-coded addresses in feature code.
-
-| Environment | API route |
-| --- | --- |
-| Android device over USB | `adb reverse`; Flutter calls `http://127.0.0.1:5000` |
-| Android emulator | Flutter calls `http://10.0.2.2:5000` |
-| Device on the same Wi-Fi network | Flask binds to `0.0.0.0`; Flutter calls the developer machine’s LAN IP |
-| Production | HTTPS endpoint or fully on-device implementation |
-
-Flutter should receive the URL with `--dart-define=API_BASE_URL=...`. For Flutter Web development, Flask must enable CORS. A physical Android phone on Wi-Fi must be on the same trusted network; never expose a development Flask server to the public internet.
-
-## Core contracts
-
-Keep these boundaries stable while implementations evolve.
-
-```text
-ModelProvider.complete(messages, tools) -> model response / requested tool call
-SearchIndex.search(query, filters) -> ranked document results with snippets and source IDs
-OcrExtractor.extract(source) -> text, confidence, page/region metadata
-AndroidTool.execute(input) -> proposed action or completed result
-PermissionGuard.confirm(action) -> approved / denied
-```
-
-Every search result must preserve provenance: source URI, display name, type, timestamp, and text/page location. Every mutating tool call must have a typed input and an explicit confirmation step.
-
-## Delivery sequence
-
-1. **Conversation foundation:** Chat UI, model selection, per-conversation context, and a stable model-provider interface.
-2. **Retrieval foundation:** File metadata index, text search, ranked results, and document cards in the UI.
-3. **Content extraction:** PDF text extraction and local OCR for photos/scanned PDFs, stored with provenance.
-4. **Agent retrieval:** Let the model request search, consume result snippets, and cite the retrieved source in its answer.
-5. **Safe actions:** Add notes first, then alarms and controlled file create/move/delete. Each action is previewed and confirmed.
-
-## Aadhaar-to-note flow
+### Retrieval answer flow
 
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant A as Agent
-  participant I as Index + OCR
-  participant M as Model
-  participant T as Notes tool
+  participant C as Coordinator
+  participant R as Retrieval tool
+  participant I as Local index/catalog
+  participant M as Selected model
+  participant UI as Flutter UI
 
-  U->>A: Create structured Aadhaar note
-  A->>I: Search Aadhaar-related content
-  I-->>A: Ranked PDF/photo snippets and source IDs
-  A->>M: Provide request and retrieved text
-  M-->>A: Structured JSON note draft
-  A-->>U: Preview JSON and source used
-  U->>A: Confirm
-  A->>T: Create note with approved JSON
-  T-->>A: Note ID / success
-  A-->>U: Saved result
+  U->>C: "Find my Aadhaar details"
+  C->>R: typed query + filters
+  R->>I: hybrid lexical/vector search
+  I-->>R: ranked extraction records + source provenance
+  R-->>C: selected evidence only
+  C->>M: whole chat context + selected snippets/provenance
+  M-->>C: grounded answer / structured draft with source IDs
+  C-->>UI: answer, citations, source cards, open URIs
+  UI-->>U: inspect source; confirm any mutation separately
 ```
+
+## Local data model
+
+The production catalog is a private Android database. CSV is an optional,
+user-visible export/audit format, not the source of truth or the vector store.
+
+| Record | Required fields | Purpose |
+| --- | --- | --- |
+| `SourceRecord` | `source_id`, authorised `source_uri`, display name, MIME type, created/modified timestamps, content version, availability | Identifies the original PDF, image, recording, or chat message. |
+| `ExtractionRecord` | `extraction_id`, `source_id`, kind, text, page/segment, confidence, extractor version, extracted timestamp | Stores native text, OCR text, transcript, or indexed chat text. |
+| `VectorRecord` | `extraction_id`, embedding model/version, vector, indexed timestamp | Makes the extraction semantically searchable. |
+| `Evidence` | source/extraction IDs, snippet, score, source URI, type, page/segment | The only retrieval payload sent to a model. |
+
+Extraction kinds are `text`, `pdf_text`, `pdf_ocr`, `image_ocr`,
+`audio_transcript`, and `chat_memory`. A single source can have multiple
+extractions—for example, a PDF has one record per page, and a recording has
+time-coded transcript segments.
+
+An optional CSV export contains: source URI, display name, MIME type, content
+version, extraction kind, page/segment, extraction text, confidence, and
+timestamps. It must never replace URI permission checks or source availability
+checks.
+
+## Context and privacy policy
+
+1. The coordinator reads the complete active chat session from local storage.
+2. It applies a documented context-budget policy while retaining a local full
+   transcript: recent turns remain verbatim; older turns are compressed or
+   selected by relevance with stable message IDs.
+3. All sessions are indexed as `chat_memory` records after local persistence.
+   The evidence identifies its session, message, role, and timestamp.
+4. For a file/content question, retrieval occurs before model completion.
+5. The model gets chat context plus a bounded set of selected snippets and
+   provenance. It never gets a raw local file merely because it was retrieved.
+6. Cloud use is an explicit model choice. The UI must identify the selected
+   provider before private text is sent remotely.
+7. Every cited source remains openable only while the app holds its authorised
+   URI permission; revoked or missing sources are excluded as current evidence.
+
+## Indexing policy
+
+* **Incremental indexing:** Android-compatible scheduled work observes only
+  user-authorised SAF trees, MediaStore sources, recordings made by this app,
+  and local chat storage. It is not a desktop-style cron job. It detects new or
+  changed source versions and queues the shared extraction pipeline.
+* **Burst indexing:** a user starts, pauses, resumes, or cancels a one-time
+  scan of authorised existing content. It has foreground progress, battery
+  constraints, and the same pipeline and deduplication rules as incremental
+  indexing.
+* **Extraction:** native PDF text comes first; scanned PDF pages and images use
+  a measured local OCR engine; recordings use a measured Parakeet-compatible
+  local transcription runtime.
+* **Indexing:** each successful non-empty extraction is persisted, embedded
+  locally, and inserted into hybrid lexical/vector retrieval. Failures are
+  stored as explicit source/extraction states, never as fake text.
+* **Acceleration:** Snapdragon/NPU/GPU acceleration is optional and must be
+  selected only after target-device benchmarking. CPU fallback is mandatory.
+
+## Stable contracts
+
+```text
+ConversationContext.build(session, budget) -> messages + retained message IDs
+Ingestion.discover(scope) -> authorised SourceRecord changes
+Extractor.extract(source unit) -> ExtractionRecord | typed failure
+Catalog.upsert(source, extraction) -> current version + stale replacement
+SearchIndex.search(RetrievalRequest) -> <= 20 ranked Evidence records
+AgentRetrieval.search(request) -> typed Evidence[] | typed failure
+ModelProvider.complete(context, evidence) -> grounded response / tool request
+AndroidAction.propose(input) -> typed preview
+PermissionGuard.confirm(action) -> approved | denied
+```
+
+`RetrievalRequest` supports a query, limit (1–20), content-type filters,
+MIME-type filters, and optional source URI. Every `Evidence` includes its
+source URI/open URI, display name, type, extraction text, contextual snippet,
+page/segment when applicable, and ranking score.
+
+## Acceptance contracts
+
+| Capability | Acceptance contract |
+| --- | --- |
+| Grounded document answer | A poorly named authorised PDF/photo is found by extracted Aadhaar-style text; the response visibly cites it and opens the same source URI. |
+| No invented retrieval | With zero results, revoked permission, or an index failure, the UI says so and does not fabricate file, OCR, action, or transcript details. |
+| Conversation context | A later turn can use a fact from an earlier turn in the same session; a cross-session fact is returned only as provenance-bearing `chat_memory` evidence. |
+| Audio memory | A recorded meeting has a local recording URI and time-coded non-empty transcript; a later query retrieves and cites the relevant segment. |
+| Incremental ingestion | A newly added authorised image/PDF is extracted and searchable without an upload control or manual re-entry. |
+| Burst ingestion | Existing authorised sources can be indexed once with durable progress, cancellation, resume, deduplication, and no network transfer. |
+| Stale replacement | Re-indexing a changed URI/page removes old text from both lexical and vector results. |
+| Model privacy | A cloud request contains only conversation text allowed by the user plus selected evidence snippets/provenance, never the original retrieved file. |
+| Safe actions | A structured note draft exposes its cited evidence and is saved only after an explicit preview and confirmation. |
+| Performance | The chosen embedding/transcription runtime reports target-device latency, recall/accuracy, package size, memory/battery impact, acceleration path, and CPU fallback. |
+
+## Current implementation truth — 2026-08-29
+
+| Area | State |
+| --- | --- |
+| Flutter chat shell, sessions, model selector | Present. Sessions are stored locally as Markdown with YAML-like frontmatter. |
+| Cloud OpenRouter response path | Present when a valid user-configured key is available. |
+| Model discovery/downloader UI | Present. A downloaded local model is not yet connected to real local chat inference. |
+| Local Android index | Present behind a Flutter method channel; it stores explicit text/OCR records with provenance, stale replacement, snippets, filters, and a semantic-embedding implementation. Device compilation/benchmark evidence is still required. |
+| Typed retrieval-to-agent boundary | Present. File-like prompts retrieve before cloud completion and pass selected evidence/provenance; failure/no-result states are explicit. |
+| Chat context to LLM | Partial. The current path sends only the most recent six messages; complete-session budgeting and chat-memory indexing are not implemented. |
+| Chat-memory index | Not implemented. Markdown persistence is not search indexing. |
+| OCR/scanner/PDF extraction | Not implemented. The current index only accepts records supplied by another component. |
+| Background watcher and burst index | Not implemented. |
+| Parakeet audio transcription | UI/service scaffold only; it currently simulates voice status/sample text and does not record or transcribe audio. |
+| Upload control | Srividya's branch removes the visible add/upload affordance, but stale attachment simulation code must be removed as part of the UI cleanup acceptance test. |
+| Actions (notes, files, messages, alarms) | Not implemented as real Android actions; only UI/action placeholders exist. |
 
 ## Non-negotiables
 
-- Android only for this scope; do not build iOS or desktop agent capabilities.
-- Request the least Android permission needed, at the moment it is needed.
-- Do not send files, extracted personal text, or indexes to a remote model without a clear user choice.
-- Use local OCR and local inference whenever practical, but provide a measured fallback when a device capability is unavailable.
-- Never perform delete, move, send, save, or alarm creation without preview and confirmation.
+* Android-only scope; no broad filesystem access or invented `content://` URIs.
+* Local indexing/extraction by default; no source content leaves the device
+  without explicit user choice.
+* No simulated success may look like OCR, retrieval, transcription, inference,
+  or an Android action.
+* Keep UI, ingestion, catalog/index, retrieval/agent, and action gateway
+  replaceable. Do not bypass their contracts.
+* Never move, delete, send, save, or create an alarm without typed preview and
+  explicit confirmation.
