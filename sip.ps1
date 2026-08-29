@@ -6,6 +6,10 @@ param (
 
 $env:Path += ";C:\flutter_windows_3.24.5-stable\flutter\bin;C:\Users\pes2u\platform-tools;C:\Users\pes2u\jdk-17\bin"
 $env:JAVA_HOME = "C:\Users\pes2u\jdk-17"
+$env:ANDROID_HOME = "C:\Users\pes2u"
+
+# Configure Android SDK path in Flutter
+& "C:\flutter_windows_3.24.5-stable\flutter\bin\flutter.bat" config --android-sdk "C:\Users\pes2u" | Out-Null
 
 # Ensure Android SDK licenses exist
 $licenseDirs = @(
@@ -28,27 +32,27 @@ d56f5187479451eabf01fb78af6dfcb131a6481e
     }
 }
 
-Write-Host "☕ [sip $Target] Starting teamChaiAndCode stack..." -ForegroundColor Cyan
+Write-Host "[sip $Target] Starting teamChaiAndCode stack..." -ForegroundColor Cyan
 
 # 1. Start Flask API if python is available
 $pyCmd = Get-Command python -ErrorAction SilentlyContinue
 if ($pyCmd) {
     $flaskProcess = Get-Process -Name "python" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*app.py*" }
     if (-not $flaskProcess) {
-        Write-Host "🌐 Starting Flask backend API (port 5000)..." -ForegroundColor Yellow
+        Write-Host "Starting Flask backend API (port 5000)..." -ForegroundColor Yellow
         Start-Process python -ArgumentList "app.py" -NoNewWindow
     } else {
-        Write-Host "🌐 Flask backend API already running." -ForegroundColor Green
+        Write-Host "Flask backend API already running." -ForegroundColor Green
     }
 }
 
 # 2. Run Flutter App
 Push-Location frontend
 if ($Device -ne "") {
-    Write-Host "📱 Launching Flutter on device $Device..." -ForegroundColor Cyan
-    flutter run -d $Device
+    Write-Host "Launching Flutter on device: $Device" -ForegroundColor Cyan
+    & "C:\flutter_windows_3.24.5-stable\flutter\bin\flutter.bat" run -d $Device
 } else {
-    Write-Host "📱 Launching Flutter on default device..." -ForegroundColor Cyan
-    flutter run
+    Write-Host "Launching Flutter on detected device..." -ForegroundColor Cyan
+    & "C:\flutter_windows_3.24.5-stable\flutter\bin\flutter.bat" run
 }
 Pop-Location
