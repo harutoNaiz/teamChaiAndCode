@@ -1,6 +1,8 @@
 package com.example.team_chai_and_code
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.appsearch.app.AppSearchSchema
@@ -40,6 +42,7 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
                     "indexText" -> upsert(readRecord(call.arguments, "text"))
                     "indexOcr" -> upsert(readRecord(call.arguments, "image_ocr"))
                     "search" -> search(readQuery(call.arguments))
+                    "openUri" -> openSourceUri(call.arguments)
                     else -> throw UnsupportedOperationException("Unknown method: ${call.method}")
                 }.also { value -> success(result, value) }
             } catch (error: IllegalArgumentException) {
@@ -49,6 +52,31 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
             }
         } } catch (error: RejectedExecutionException) {
             failure(result, "index_closed", "Index bridge is closed")
+        }
+    }
+
+    fun indexDirectly(recordMap: Map<String, Any?>, defaultContentType: String): Map<String, Any?> {
+        return upsert(readRecord(recordMap, defaultContentType))
+    }
+
+    private fun openSourceUri(arguments: Any?): Map<String, Any?> {
+        val uriString = when (arguments) {
+            is String -> arguments
+            is Map<*, *> -> (arguments["uri"] ?: arguments["open_uri"] ?: arguments["source_uri"]) as? String
+            else -> null
+        } ?: throw IllegalArgumentException("uri is required")
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse(uriString)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return try {
+            appContext.startActivity(intent)
+            mapOf("opened" to true, "uri" to uriString, "status" to "opened")
+        } catch (e: SecurityException) {
+            mapOf("opened" to false, "uri" to uriString, "status" to "permission_required", "message" to (e.message ?: "Permission required"))
+        } catch (e: Exception) {
+            mapOf("opened" to false, "uri" to uriString, "status" to "error", "message" to (e.message ?: "Cannot open source URI"))
         }
     }
 
@@ -157,6 +185,7 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
         require(suppliedContentType == null || suppliedContentType is String) { "content_type must be a string" }
         val contentType = (suppliedContentType as? String) ?: defaultContentType
         val allowedContentTypes = if (defaultContentType == "text") setOf("text", "pdf_text") else setOf("image_ocr", "pdf_ocr")
+        require(contentType in allowedContentTypes) { "content_type must be one of $allowedContentTypes" }
         fun required(name: String): String {
             val value = values[name] as? String ?: throw IllegalArgumentException("$name is required")
             require(value.isNotBlank()) { "$name is required" }

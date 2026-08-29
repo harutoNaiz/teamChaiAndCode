@@ -3,6 +3,7 @@ import '../models/chat_session.dart';
 import '../models/ai_model_config.dart';
 import '../services/chat_storage_service.dart';
 import '../services/agent_service.dart';
+import '../services/scanner_service.dart';
 import '../theme/app_theme.dart';
 
 class ChatDrawer extends StatefulWidget {
@@ -561,6 +562,56 @@ class _ChatDrawerState extends State<ChatDrawer> {
                             ),
                           ),
                           const Icon(Icons.unfold_more_rounded, size: 18, color: Colors.grey),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+
+                  // Local Scanner / OCR Ingestion Tile
+                  InkWell(
+                    onTap: () async {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Opening folder picker...')),
+                      );
+                      // Import dynamic call to scanner service
+                      final result = await ScannerService.instance.pickAndScanFolder();
+                      if (context.mounted) {
+                        if (result.isSuccess) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Indexed ${result.records.length} document(s) & photo(s) from selected folder.'),
+                              backgroundColor: AppTheme.brandAccent,
+                            ),
+                          );
+                        } else if (result.status == 'error') {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Scan error: ${result.error}'),
+                              backgroundColor: AppTheme.dangerRed,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.document_scanner_outlined, size: 16, color: AppTheme.brandAccent),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Scan Folder / Photos (OCR)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const Spacer(),
+                          const Icon(Icons.folder_open, size: 16, color: Colors.grey),
                         ],
                       ),
                     ),

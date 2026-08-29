@@ -21,16 +21,17 @@ Work in this order. A contributor picks the next uncompleted item in their secti
 
 ## Suprith — local OCR, scanner, and Snapdragon capability
 
-**Current ownership:** the phone-content ingestion side: discovery, OCR, and local-model investigation. The existing remote `ocr-branch` contains lint/setup changes only; OCR scanning is still unimplemented.
+**Current ownership:** the phone-content ingestion side: discovery, background filesystem cron watching, multimodal reasoning/OCR, embedding generation, and vector memory retrieval.
 
-### Next tasks
+### Tasks
 
-1. Implement Android-safe source selection/discovery using Storage Access Framework or MediaStore, with a clear permission state.
-2. Connect the selected local OCR engine to photos and scanned-PDF pages. Measure accuracy, latency, package size, and supported scripts on the target phone.
-3. Send each successful OCR result to the existing index using the JSON contract in [`../handovers/LOCAL_INDEX_OCR_HANDOVER.md`](../handovers/LOCAL_INDEX_OCR_HANDOVER.md). Preserve source URI, display name, page, MIME type, transcription, and confidence.
-4. Report a portable local-model/Snapdragon runtime choice with a CPU fallback. Do not wire an unmeasured model into chat.
+1. Implement Android-safe source selection/discovery using Storage Access Framework or MediaStore, with a background cron watcher observing granted storage.
+2. Connect on-device OCR and OpenRouter multimodal models (e.g. Gemini, DeepSeek, Claude) for document reasoning and text extraction on photos and scanned-PDF pages.
+3. Generate text embeddings and index extracted content into a single-list vector memory store behind the stable `IndexStore` interface.
+4. Ground search and queries in vector memory, preserving source URI, display name, page, MIME type, transcription, and confidence.
+5. Report a portable local-model/Snapdragon runtime choice with a CPU fallback.
 
-**Acceptance:** Choose a phone folder, scan at least one photo and one PDF page, index their extracted text, then search and open the original source from the result.
+**Acceptance:** Choose a phone folder, scan/watch photos and PDF pages, reason over them and generate embeddings, index their extracted text into vector memory, and retrieve memory results on search.
 
 ## Tushar — retrieval quality and agent retrieval tool
 
