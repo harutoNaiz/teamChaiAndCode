@@ -164,7 +164,7 @@ class LocalModelManagerService {
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('$_storagePrefix$modelId', true);
-      await prefs.setString('${_storagePrefix}${modelId}_path', targetPath);
+      await prefs.setString('$_storagePrefix${modelId}_path', targetPath);
 
       controller.add(DownloadProgress(
         bytesReceived: receivedBytes,
@@ -216,7 +216,7 @@ class LocalModelManagerService {
       }
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('$_storagePrefix$modelId');
-      await prefs.remove('${_storagePrefix}${modelId}_path');
+      await prefs.remove('$_storagePrefix${modelId}_path');
     } catch (e) {
       debugPrint('Error deleting model: $e');
     }
