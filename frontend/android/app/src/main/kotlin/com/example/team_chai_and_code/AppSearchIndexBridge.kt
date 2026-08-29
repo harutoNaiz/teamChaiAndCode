@@ -15,6 +15,11 @@ import androidx.appsearch.app.SetSchemaRequest
 import androidx.appsearch.localstorage.LocalStorage
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import com.example.team_chai_and_code.catalog.CatalogWriteResult
+import com.example.team_chai_and_code.catalog.ExtractionKind
+import com.example.team_chai_and_code.catalog.ExtractionRecord
+import com.example.team_chai_and_code.catalog.SharedPreferencesCatalogWriter
+import com.example.team_chai_and_code.catalog.SourceRecord
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
@@ -25,6 +30,7 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val preferences = appContext.getSharedPreferences("local_index_sources", Context.MODE_PRIVATE)
+    private val catalog = SharedPreferencesCatalogWriter(appContext)
     private val embedder = LocalTextEmbedder(appContext)
     private var session: AppSearchSession? = null
     @Volatile private var closed = false
@@ -43,6 +49,7 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
                 when (call.method) {
                     "indexText" -> upsert(readRecord(call.arguments, "text"))
                     "indexOcr" -> upsert(readRecord(call.arguments, "image_ocr"))
+                    "indexChatMemory" -> upsert(readRecord(call.arguments, "chat_memory"))
                     "search" -> search(readSearchRequest(call.arguments))
                     else -> throw UnsupportedOperationException("Unknown method: ${call.method}")
                 }.also { value -> success(result, value) }
@@ -78,6 +85,36 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
     }
 
     private fun upsert(record: IndexRecord): Map<String, Any?> {
+        val catalogResult = catalog.upsert(
+            SourceRecord(
+                sourceId = record.sourceUri,
+                sourceUri = record.sourceUri,
+                displayName = record.displayName,
+                mimeType = record.mimeType,
+                contentVersion = record.id,
+                modifiedAtMillis = record.modifiedAt ?: System.currentTimeMillis(),
+            ),
+            ExtractionRecord(
+                extractionId = record.id,
+                sourceId = record.sourceUri,
+                kind = when (record.contentType) {
+                    "pdf_text" -> ExtractionKind.PDF_TEXT
+                    "pdf_ocr" -> ExtractionKind.PDF_OCR
+                    "image_ocr" -> ExtractionKind.IMAGE_OCR
+                    "chat_memory" -> ExtractionKind.CHAT_MEMORY
+                    else -> ExtractionKind.TEXT
+                },
+                text = record.transcription,
+                extractorVersion = "bridge-v1",
+                extractedAtMillis = record.modifiedAt ?: System.currentTimeMillis(),
+                page = record.page,
+                confidence = record.ocrConfidence,
+            )
+        )
+        require(catalogResult !is CatalogWriteResult.Rejected) { catalogResult.reason }
+        if (catalogResult is CatalogWriteResult.Failed) {
+            throw IllegalStateException(catalogResult.reason)
+        }
         val sourceKey = "${record.sourceUri}|${record.page ?: 0}"
         val previousId = preferences.getString(sourceKey, null)
         val identifierKey = "id:${record.id}"
@@ -196,7 +233,12 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
         val suppliedContentType = values["content_type"]
         require(suppliedContentType == null || suppliedContentType is String) { "content_type must be a string" }
         val contentType = (suppliedContentType as? String) ?: defaultContentType
-        val allowedContentTypes = if (defaultContentType == "text") setOf("text", "pdf_text") else setOf("image_ocr", "pdf_ocr")
+        val allowedContentTypes = when (defaultContentType) {
+            "text" -> setOf("text", "pdf_text")
+            "chat_memory" -> setOf("chat_memory")
+            else -> setOf("image_ocr", "pdf_ocr")
+        }
+        require(contentType in allowedContentTypes) { "content_type is not valid for this index method" }
         fun required(name: String): String {
             val value = values[name] as? String ?: throw IllegalArgumentException("$name is required")
             require(value.isNotBlank()) { "$name is required" }
