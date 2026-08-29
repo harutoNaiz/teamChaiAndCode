@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:team_chai_and_code/local_index_bridge.dart';
+import 'package:team_chai_and_code/models/retrieved_evidence.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -37,12 +38,16 @@ void main() {
       'modified_at': 1789590600000,
     });
 
-    final textResults = await index.search('$runToken project review');
+    final textResults = await index.search(const RetrievalRequest(
+      query: '$runToken project review',
+    ));
     expect(textResults, isNotEmpty);
     expect(textResults.first['open_uri'], notesUri);
     expect(textResults.first['transcription'], contains('17 September 2026'));
 
-    final ocrResults = await index.search('$runToken Aadhaar');
+    final ocrResults = await index.search(const RetrievalRequest(
+      query: '$runToken Aadhaar',
+    ));
     expect(ocrResults, isNotEmpty);
     expect(ocrResults.first['open_uri'], imageUri);
     expect(ocrResults.first['transcription'], contains('4321 8765 2109'));
@@ -67,8 +72,8 @@ void main() {
       'transcription': '$runToken freshmango submit the report on Friday.',
     });
 
-    expect(await index.search('staleorange'), isEmpty);
-    final freshResults = await index.search('freshmango');
+    expect(await index.search(const RetrievalRequest(query: 'staleorange')), isEmpty);
+    final freshResults = await index.search(const RetrievalRequest(query: 'freshmango'));
     expect(freshResults, hasLength(1));
     expect(freshResults.single['open_uri'], sourceUri);
   });
@@ -86,7 +91,10 @@ void main() {
       'page': 2,
     });
 
-    final pdfResults = await index.search('$runToken budget');
+    final pdfResults = await index.search(const RetrievalRequest(
+      query: '$runToken budget',
+      contentTypes: {'pdf_text'},
+    ));
     expect(pdfResults, isNotEmpty);
     expect(pdfResults.first['content_type'], 'pdf_text');
     expect(pdfResults.first['page'], 2);
@@ -101,6 +109,7 @@ void main() {
         'transcription': '$runToken broadlimit result number $item',
       });
     }
-    expect(await index.search('broadlimit'), hasLength(20));
+    expect(await index.search(const RetrievalRequest(query: 'broadlimit', limit: 20)),
+        hasLength(20));
   });
 }

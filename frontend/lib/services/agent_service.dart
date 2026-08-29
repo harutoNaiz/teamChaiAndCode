@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,6 +7,8 @@ import '../models/chat_message.dart';
 import '../models/agent_action.dart';
 import '../models/ai_model_config.dart';
 import 'context_compression_service.dart';
+import '../models/retrieved_evidence.dart';
+import 'retrieval_tool.dart';
 
 enum AgentBackendMode {
   openRouterDirect, // Directly calls OpenRouter API from phone / web
@@ -18,7 +19,13 @@ enum AgentBackendMode {
 class AgentService {
   static final AgentService instance = AgentService._internal();
 
-  AgentService._internal();
+  factory AgentService.withRetrievalTool(RetrievalTool retrievalTool) =>
+      AgentService._internal(retrievalTool: retrievalTool);
+
+  AgentService._internal({RetrievalTool? retrievalTool})
+      : _retrievalTool = retrievalTool ?? RetrievalTool();
+
+  final RetrievalTool _retrievalTool;
 
   AgentBackendMode backendMode = AgentBackendMode.openRouterDirect;
   String openRouterApiKey = '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';
@@ -57,11 +64,27 @@ class AgentService {
       newPrompt: prompt,
       attachmentPath: attachmentPath,
     );
+    final needsRetrieval = _needsRetrieval(prompt);
+    List<RetrievedEvidence> evidence = const [];
+
+    try {
+      evidence = await _retrievalTool.search(RetrievalRequest(query: prompt));
+    } on RetrievalException catch (error) {
+      if (needsRetrieval) {
+        return _retrievalFailureMessage(error);
+      }
+      debugPrint('Local retrieval unavailable for this turn: ${error.message}');
+    }
+
+    if (needsRetrieval && evidence.isEmpty) {
+      return _noEvidenceMessage(prompt);
+    }
 
     // 1. Try Direct OpenRouter if API key is present or mode is openRouterDirect
     if (backendMode == AgentBackendMode.openRouterDirect && openRouterApiKey.isNotEmpty) {
       try {
-        return await _sendToOpenRouter(session, prompt, modelConfig, attachmentPath);
+        return await _sendToOpenRouter(
+            session, prompt, modelConfig, attachmentPath, evidence);
       } catch (e) {
         debugPrint('OpenRouter direct call failed: $e. Trying fallback.');
       }
@@ -70,14 +93,14 @@ class AgentService {
     // 2. Try Flask Backend
     if (backendMode == AgentBackendMode.flaskBackend) {
       try {
-        return await _sendToFlaskBackend(payload, prompt);
+        return await _sendToFlaskBackend(payload, prompt, evidence);
       } catch (e) {
         debugPrint('Flask backend connection failed: $e. Falling back to simulation.');
       }
     }
 
-    // 3. Fallback: Intelligent Agent Simulation
-    return await _simulateAgentResponse(session, prompt, attachmentPath, onStreamChunk);
+    // Never fabricate a device result when a model or backend is unavailable.
+    return _modelUnavailableMessage();
   }
 
   /// Dispatches request directly to OpenRouter API
@@ -86,6 +109,7 @@ class AgentService {
     String prompt,
     AIModelConfig? modelConfig,
     String? attachmentPath,
+    List<RetrievedEvidence> evidence,
   ) async {
     final selectedModel = modelConfig?.openRouterModelId.isNotEmpty == true
         ? modelConfig!.openRouterModelId
@@ -95,9 +119,10 @@ class AgentService {
       {
         'role': 'system',
         'content': 'You are teamChai: a smartphone agent AI. '
-            'You have access to device tools: search_files, ocr_image, send_whatsapp, organize_files. '
-            'When a tool is needed, mention the tool and provide concise output. '
-            'Always be helpful, precise, and conversational.',
+            'You are teamChai, a smartphone assistant. You cannot claim to have searched '
+            'a file or read device content unless evidence is provided below. Use only the '
+            'provided snippets for file facts. Cite a supporting source as [Source: source_id]. '
+            'If no evidence is provided, say that no local source was used.',
       },
     ];
 
@@ -117,7 +142,7 @@ class AgentService {
 
     messages.add({
       'role': 'user',
-      'content': attachmentPath != null ? '$prompt\n[Attached: $attachmentPath]' : prompt,
+      'content': _promptWithEvidence(prompt, attachmentPath, evidence),
     });
 
     final response = await http.post(
@@ -141,10 +166,11 @@ class AgentService {
           ? (choices[0]['message']['content'] as String? ?? '')
           : 'Received empty response from OpenRouter.';
 
+      final citedReply = _ensureEvidenceCitations(reply, evidence);
       return ChatMessage(
         id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
         role: MessageRole.assistant,
-        content: reply,
+        content: citedReply,
         timestamp: DateTime.now(),
         thoughtProcess: 'Executed via OpenRouter ($selectedModel)',
       );
@@ -154,7 +180,9 @@ class AgentService {
   }
 
   /// Dispatches the HTTP request to Flask backend
-  Future<ChatMessage> _sendToFlaskBackend(Map<String, dynamic> payload, String prompt) async {
+  Future<ChatMessage> _sendToFlaskBackend(
+      Map<String, dynamic> payload, String prompt, List<RetrievedEvidence> evidence) async {
+    payload['retrieved_evidence'] = evidence.map((item) => item.toModelContext()).toList();
     final response = await http.post(
       Uri.parse('$backendBaseUrl/api/agent/chat'),
       headers: {'Content-Type': 'application/json'},
@@ -173,7 +201,7 @@ class AgentService {
       return ChatMessage(
         id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
         role: MessageRole.assistant,
-        content: content,
+        content: _ensureEvidenceCitations(content, evidence),
         timestamp: DateTime.now(),
         actions: actions,
         thoughtProcess: data['thought_process'] as String?,
@@ -183,95 +211,49 @@ class AgentService {
     }
   }
 
-  /// Intelligent fallback simulation
-  Future<ChatMessage> _simulateAgentResponse(
-    ChatSession session,
-    String prompt,
-    String? attachmentPath,
-    void Function(String partialText)? onStreamChunk,
-  ) async {
-    final lower = prompt.toLowerCase();
-    final messageId = 'msg-${DateTime.now().millisecondsSinceEpoch}';
-    final List<AgentAction> actions = [];
-    String responseText = '';
-    String? thoughtProcess;
+  bool _needsRetrieval(String prompt) => RegExp(
+          r'\b(find|search|look up|document|file|pdf|photo|image|scan|aadhaar|receipt|ocr)\b',
+          caseSensitive: false)
+      .hasMatch(prompt);
 
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    if (lower.contains('offer letter') || lower.contains('internship') || lower.contains('pdf') || lower.contains('find')) {
-      thoughtProcess = '1. Search local storage for offer letters\n2. Extract stipend and joining date\n3. Generate WhatsApp dispatch permission card';
-
-      actions.add(AgentAction(
-        id: 'act-${Random().nextInt(9999)}',
-        type: 'search_files',
-        title: 'Unified File Index Search',
-        description: 'Indexed match: Documents/Google_Offer_Letter.pdf',
-        permissionLevel: ActionPermissionLevel.safe,
-        status: ActionStatus.completed,
-        parameters: {'query': 'offer letter', 'extension': 'pdf'},
-        result: {'found': true, 'path': 'Documents/Google_Offer_Letter.pdf'},
-      ));
-
-      if (lower.contains('whatsapp') || lower.contains('send') || lower.contains('share') || lower.contains('rahul')) {
-        actions.add(AgentAction(
-          id: 'act-${Random().nextInt(9999)}',
-          type: 'send_whatsapp',
-          title: 'Send WhatsApp Message',
-          description: 'Share internship details with Rahul Sharma',
-          permissionLevel: ActionPermissionLevel.sensitive,
-          status: ActionStatus.pendingApproval,
-          parameters: {
-            'recipient': 'Rahul Sharma',
-            'phone': '+91 98765 43210',
-            'message': 'Offer summary: Google SWE Intern. Stipend ₹1,25,000/mo. Joining June 15, 2026.',
-          },
-        ));
-      }
-
-      responseText = 'I searched your phone\'s local storage and extracted the key information:\n\n'
-          '📁 **Document:** `Documents/Google_Offer_Letter.pdf`\n\n'
-          '### 📑 Offer Highlights:\n'
-          '• **Organization:** Google India\n'
-          '• **Designation:** Software Engineering Intern\n'
-          '• **Stipend:** ₹1,25,000 / month\n'
-          '• **Joining Date:** 15th June 2026\n\n'
-          '${actions.length > 1 ? 'I have staged the WhatsApp message for Rahul. Please review and approve below to send.' : 'Let me know if you would like me to share this or organize your documents.'}';
-    } else if (lower.contains('receipt') || lower.contains('bill') || lower.contains('ocr') || lower.contains('expense') || attachmentPath != null) {
-      thoughtProcess = '1. Run multimodal OCR on attached/recent image\n2. Parse itemized line items and total';
-
-      actions.add(AgentAction(
-        id: 'act-${Random().nextInt(9999)}',
-        type: 'ocr_image',
-        title: 'On-Device Vision OCR Scan',
-        description: 'Parsed receipt text & numbers from image',
-        permissionLevel: ActionPermissionLevel.safe,
-        status: ActionStatus.completed,
-        parameters: {'source': attachmentPath ?? 'Gallery/Recent_Receipt.png'},
-        result: {'items_count': 3, 'total': '₹565'},
-      ));
-
-      responseText = 'Here is the itemized summary extracted from the receipt:\n\n'
-          '| Item | Qty | Price |\n'
-          '| :--- | :--- | :--- |\n'
-          '| Masala Chai | 2 | ₹180 |\n'
-          '| Paneer Roll | 2 | ₹320 |\n'
-          '| Taxes & Delivery | - | ₹65 |\n'
-          '| **Grand Total** | | **₹565** |\n\n'
-          '✨ *Extracted using OpenRouter / local OCR.*';
-    } else {
-      responseText = 'teamChai agent processed your request.\n\n'
-          'I have full context of this conversation and can search documents, scan receipts, or perform device actions.';
-    }
-
-    return ChatMessage(
-      id: messageId,
-      role: MessageRole.assistant,
-      content: responseText,
-      timestamp: DateTime.now(),
-      actions: actions,
-      thoughtProcess: thoughtProcess,
-    );
+  String _promptWithEvidence(String prompt, String? attachmentPath,
+      List<RetrievedEvidence> evidence) {
+    final attachment = attachmentPath == null ? '' : '\n[Attached: $attachmentPath]';
+    if (evidence.isEmpty) return '$prompt$attachment';
+    return '$prompt$attachment\n\nVerified local retrieval evidence (use only this for device-file facts):\n'
+        '${const JsonEncoder.withIndent('  ').convert(evidence.map((item) => item.toModelContext()).toList())}';
   }
+
+  String _ensureEvidenceCitations(String response, List<RetrievedEvidence> evidence) {
+    if (evidence.isEmpty || evidence.any((item) => response.contains(item.identifier))) {
+      return response;
+    }
+    return '$response\n\nSources retrieved for this answer:\n${evidence.map((item) => '- ${item.citation}').join('\n')}';
+  }
+
+  ChatMessage _noEvidenceMessage(String prompt) => ChatMessage(
+        id: 'msg-search-empty-${DateTime.now().millisecondsSinceEpoch}',
+        role: MessageRole.assistant,
+        content: 'I searched the local index, but found no matching authorised content for “$prompt”. '
+            'I have not read or inferred details from a file.',
+        timestamp: DateTime.now(),
+        thoughtProcess: 'Local retrieval completed with 0 ranked results.',
+      );
+
+  ChatMessage _retrievalFailureMessage(RetrievalException error) => ChatMessage(
+        id: 'msg-search-error-${DateTime.now().millisecondsSinceEpoch}',
+        role: MessageRole.assistant,
+        content: 'I could not search local content: ${error.message}. No file or OCR result was used.',
+        timestamp: DateTime.now(),
+        thoughtProcess: 'Local retrieval failed (${error.failure.name}).',
+      );
+
+  ChatMessage _modelUnavailableMessage() => ChatMessage(
+        id: 'msg-model-error-${DateTime.now().millisecondsSinceEpoch}',
+        role: MessageRole.assistant,
+        content: 'The selected model is unavailable. I did not generate a simulated device result.',
+        timestamp: DateTime.now(),
+      );
 
   Future<bool> executeAction(AgentAction action) async {
     action.status = ActionStatus.executing;

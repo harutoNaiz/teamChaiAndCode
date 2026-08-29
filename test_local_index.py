@@ -32,3 +32,26 @@ class LocalTextIndexTest(unittest.TestCase):
 
         self.assertEqual([], index.search("old"))
         self.assertEqual("1-v2", index.search("offer")[0]["identifier"])
+
+    def test_poor_filename_is_ranked_from_extracted_text_with_provenance(self):
+        index = LocalTextIndex()
+        index.upsert(IndexedRecord(
+            "opaque-v1", "content://documents/opaque", "scan-003.jpg", "image/jpeg", "image_ocr",
+            "Unique Aadhaar identity details for Example Person", ocr_confidence=0.91, modified_at=1789590600000,
+        ))
+
+        result = index.search("aadhaar identity", content_types={"image_ocr"})[0]
+
+        self.assertEqual("scan-003.jpg", result["display_name"])
+        self.assertEqual("content://documents/opaque", result["open_uri"])
+        self.assertIn("Aadhaar", result["snippet"])
+        self.assertEqual(1789590600000, result["modified_at"])
+
+    def test_filters_and_invalid_records_are_handled(self):
+        index = LocalTextIndex()
+        index.upsert(IndexedRecord("pdf-v1", "content://docs/one", "file.pdf", "application/pdf", "pdf_text", "Aadhaar details", page=2))
+        index.upsert(IndexedRecord("text-v1", "content://docs/two", "file.txt", "text/plain", "text", "Aadhaar details"))
+
+        self.assertEqual(["pdf-v1"], [item["identifier"] for item in index.search("aadhaar", content_types={"pdf_text"})])
+        with self.assertRaises(ValueError):
+            index.upsert(IndexedRecord("bad", "content://docs/bad", "bad.jpg", "image/jpeg", "image_ocr", "text", ocr_confidence=1.1))

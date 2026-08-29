@@ -60,3 +60,20 @@ class IndexApiTest(unittest.TestCase):
 
         self.assertEqual(400, response.status_code)
         self.assertIn("transcription", response.get_json()["fields"])
+
+    def test_search_filters_and_source_freshness_are_returned(self):
+        self.client.post("/index/text", json={
+            "id": "pdf-v1", "source_uri": "content://documents/card", "display_name": "scan.pdf",
+            "mime_type": "application/pdf", "transcription": "Aadhaar details", "page": 2,
+            "modified_at": 1789590600000,
+        })
+        self.client.post("/index/ocr", json={
+            "id": "photo-v1", "source_uri": "content://images/card", "display_name": "scan.jpg",
+            "mime_type": "image/jpeg", "transcription": "Aadhaar details",
+        })
+
+        response = self.client.get("/search?q=aadhaar&content_type=text&source_uri=content://documents/card")
+        self.assertEqual(200, response.status_code)
+        result = response.get_json()["results"]
+        self.assertEqual(["pdf-v1"], [item["identifier"] for item in result])
+        self.assertEqual(1789590600000, result[0]["modified_at"])

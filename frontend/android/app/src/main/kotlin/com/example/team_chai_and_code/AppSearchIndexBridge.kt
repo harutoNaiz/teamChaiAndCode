@@ -5,6 +5,8 @@ import android.os.Handler
 import android.os.Looper
 import androidx.appsearch.app.AppSearchSchema
 import androidx.appsearch.app.AppSearchSession
+import androidx.appsearch.app.EmbeddingVector
+import androidx.appsearch.app.ExperimentalAppSearchApi
 import androidx.appsearch.app.GenericDocument
 import androidx.appsearch.app.PutDocumentsRequest
 import androidx.appsearch.app.RemoveByDocumentIdRequest
@@ -17,11 +19,13 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 
+@OptIn(ExperimentalAppSearchApi::class)
 class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
     private val appContext = context.applicationContext
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val preferences = appContext.getSharedPreferences("local_index_sources", Context.MODE_PRIVATE)
+    private val embedder = LocalTextEmbedder(appContext)
     private var session: AppSearchSession? = null
     @Volatile private var closed = false
 
@@ -39,7 +43,7 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
                 when (call.method) {
                     "indexText" -> upsert(readRecord(call.arguments, "text"))
                     "indexOcr" -> upsert(readRecord(call.arguments, "image_ocr"))
-                    "search" -> search(readQuery(call.arguments))
+                    "search" -> search(readSearchRequest(call.arguments))
                     else -> throw UnsupportedOperationException("Unknown method: ${call.method}")
                 }.also { value -> success(result, value) }
             } catch (error: IllegalArgumentException) {
@@ -58,6 +62,7 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
         executor.execute {
             session?.close()
             session = null
+            embedder.close()
         }
         executor.shutdown()
     }
@@ -92,6 +97,10 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
         documentBuilder.setPropertyString("mimeType", record.mimeType)
         documentBuilder.setPropertyString("contentType", record.contentType)
         documentBuilder.setPropertyString("transcription", record.transcription)
+        documentBuilder.setPropertyEmbedding(
+            "embedding",
+            EmbeddingVector(embedder.embed(record.transcription), EMBEDDING_MODEL_SIGNATURE)
+        )
         record.page?.let { documentBuilder.setPropertyLong("page", it.toLong()) }
         record.ocrConfidence?.let {
             documentBuilder.setPropertyDouble("ocrConfidence", it)
@@ -106,23 +115,44 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
         return mapOf("id" to record.id, "indexed" to true, "open_uri" to record.sourceUri)
     }
 
-    private fun search(query: String): List<Map<String, Any?>> {
-        require(query.isNotBlank()) { "q is required" }
-        val spec = SearchSpec.Builder()
+    private fun search(request: SearchRequest): List<Map<String, Any?>> {
+        val query = request.query
+        val lexicalSpec = SearchSpec.Builder()
             .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
             .setSnippetCount(1)
             .setSnippetCountPerProperty(1)
             .build()
+        val lexical = collectResults(appSearch().search(query, lexicalSpec), request)
+        if (lexical.isNotEmpty()) return lexical
+        if (!query.contains(Regex("\\s"))) return lexical
+        val queryEmbedding = EmbeddingVector(embedder.embed(query), EMBEDDING_MODEL_SIGNATURE)
+        val spec = SearchSpec.Builder()
+            .addEmbeddingParameters(queryEmbedding)
+            .setListFilterQueryLanguageEnabled(true)
+            .setSnippetCount(1)
+            .setSnippetCountPerProperty(1)
+            .build()
+        val searchResults = appSearch().search(
+            "semanticSearch(getEmbeddingParameter(0), -1.0, 1.0, \"COSINE\")",
+            spec
+        )
+        return collectResults(searchResults, request)
+    }
+
+    private fun collectResults(
+        searchResults: androidx.appsearch.app.SearchResults,
+        request: SearchRequest,
+    ): List<Map<String, Any?>> {
         val results = mutableListOf<Map<String, Any?>>()
-        val searchResults = appSearch().search(query, spec)
         while (true) {
-            if (results.size >= RESULT_LIMIT) return results
+            if (results.size >= request.limit) return results
             val page = searchResults.nextPageAsync.get()
             if (page.isEmpty()) break
             page.forEach { result ->
-                if (results.size >= RESULT_LIMIT) return results
+                if (results.size >= request.limit) return results
                 val document = result.genericDocument
                 val transcription = document.getPropertyString("transcription") ?: ""
+                if (!matchesFilters(document, request)) return@forEach
                 results.add(
                     mapOf(
                         "identifier" to document.id,
@@ -135,12 +165,22 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
                         "page" to document.getPropertyLong("page"),
                         "ocr_confidence" to document.getPropertyDouble("ocrConfidence"),
                         "modified_at" to document.getPropertyLong("modifiedAt"),
-                        "snippet" to snippetFor(transcription, query),
+                        "score" to result.rankingSignal,
+                        "snippet" to snippetFor(transcription, request.query),
                     )
                 )
             }
         }
         return results
+    }
+
+    private fun matchesFilters(document: GenericDocument, request: SearchRequest): Boolean {
+        val contentType = document.getPropertyString("contentType") ?: return false
+        val mimeType = document.getPropertyString("mimeType") ?: return false
+        val sourceUri = document.getPropertyString("sourceUri") ?: return false
+        return (request.contentTypes.isEmpty() || contentType in request.contentTypes) &&
+            (request.mimeTypes.isEmpty() || mimeType in request.mimeTypes) &&
+            (request.sourceUri == null || sourceUri == request.sourceUri)
     }
 
     private fun snippetFor(text: String, query: String): String {
@@ -185,9 +225,28 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
         )
     }
 
-    private fun readQuery(arguments: Any?): String {
+    private fun readSearchRequest(arguments: Any?): SearchRequest {
         val values = arguments as? Map<*, *> ?: throw IllegalArgumentException("Arguments must be an object")
-        return values["q"] as? String ?: throw IllegalArgumentException("q is required")
+        val query = values["q"] as? String ?: throw IllegalArgumentException("q is required")
+        require(query.isNotBlank()) { "q is required" }
+        val rawLimit = values["limit"] as? Number
+        val limit = rawLimit?.toInt() ?: DEFAULT_RESULT_LIMIT
+        require(rawLimit == null || rawLimit.toDouble() == limit.toDouble()) { "limit must be a whole number" }
+        require(limit in 1..RESULT_LIMIT) { "limit must be between 1 and $RESULT_LIMIT" }
+        fun stringSet(name: String): Set<String> {
+            val value = values[name] ?: return emptySet()
+            val list = value as? List<*> ?: throw IllegalArgumentException("$name must be a list of strings")
+            return list.map {
+                val item = it as? String ?: throw IllegalArgumentException("$name must be a list of strings")
+                require(item.isNotBlank()) { "$name must not contain blank values" }
+                item
+            }.toSet()
+        }
+        val sourceUri = values["source_uri"]
+        require(sourceUri == null || sourceUri is String && sourceUri.isNotBlank()) {
+            "source_uri must be a non-empty string"
+        }
+        return SearchRequest(query, limit, stringSet("content_types"), stringSet("mime_types"), sourceUri as? String)
     }
 
     private fun success(result: MethodChannel.Result, value: Any?) {
@@ -228,6 +287,11 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
                 .setTokenizerType(AppSearchSchema.StringPropertyConfig.TOKENIZER_TYPE_PLAIN)
                 .build()
         )
+        .addProperty(
+            AppSearchSchema.EmbeddingPropertyConfig.Builder("embedding")
+                .setIndexingType(AppSearchSchema.EmbeddingPropertyConfig.INDEXING_TYPE_SIMILARITY)
+                .build()
+        )
         .addProperty(AppSearchSchema.LongPropertyConfig.Builder("page").build())
         .addProperty(AppSearchSchema.DoublePropertyConfig.Builder("ocrConfidence").build())
         .addProperty(AppSearchSchema.LongPropertyConfig.Builder("modifiedAt").build())
@@ -245,12 +309,22 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
         val modifiedAt: Long?,
     )
 
+    private data class SearchRequest(
+        val query: String,
+        val limit: Int,
+        val contentTypes: Set<String>,
+        val mimeTypes: Set<String>,
+        val sourceUri: String?,
+    )
+
     private companion object {
         const val DATABASE_NAME = "team_chai_local_index"
         const val NAMESPACE = "phone_content"
         const val SCHEMA_TYPE = "IndexedContent"
         const val RESULT_LIMIT = 20
+        const val DEFAULT_RESULT_LIMIT = 5
         const val SNIPPET_LENGTH = 160
         const val SNIPPET_RADIUS = 80
+        const val EMBEDDING_MODEL_SIGNATURE = "universal-sentence-encoder-v1"
     }
 }

@@ -22,10 +22,12 @@ class IndexedRecord:
     transcription: str
     page: int | None = None
     ocr_confidence: float | None = None
+    modified_at: int | None = None
 class IndexStore(Protocol):
     """The small contract that Android AppSearch must implement."""
     def upsert(self, record: IndexedRecord) -> None: ...
-    def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]: ...
+    def search(self, query: str, limit: int = 20, *, content_types: set[str] | None = None,
+               mime_types: set[str] | None = None, source_uri: str | None = None) -> list[dict[str, Any]]: ...
 
 
 class LocalTextIndex:
@@ -54,8 +56,14 @@ class LocalTextIndex:
             del self._source_records[source_key]
 
     def upsert(self, record: IndexedRecord) -> None:
-        if not record.identifier or not record.source_uri or not record.transcription.strip():
-            raise ValueError("identifier, source_uri, and transcription are required")
+        if not all((record.identifier, record.source_uri, record.display_name, record.mime_type, record.transcription.strip())):
+            raise ValueError("identifier, source_uri, display_name, mime_type, and transcription are required")
+        if record.page is not None and record.page < 1:
+            raise ValueError("page must be positive")
+        if record.ocr_confidence is not None and not 0 <= record.ocr_confidence <= 1:
+            raise ValueError("ocr_confidence must be between 0 and 1")
+        if record.modified_at is not None and record.modified_at < 1:
+            raise ValueError("modified_at must be positive")
         searchable_text = f"{record.display_name} {record.transcription}"
         terms = self._tokens(searchable_text)
         with self._lock:
@@ -70,9 +78,10 @@ class LocalTextIndex:
             for term in terms:
                 self._terms[term].add(record.identifier)
 
-    def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+    def search(self, query: str, limit: int = 20, *, content_types: set[str] | None = None,
+               mime_types: set[str] | None = None, source_uri: str | None = None) -> list[dict[str, Any]]:
         query_terms = self._tokens(query)
-        if not query_terms:
+        if not query_terms or not 1 <= limit <= 20:
             return []
         scores: dict[str, int] = defaultdict(int)
         with self._lock:
@@ -84,6 +93,12 @@ class LocalTextIndex:
             results = []
             for identifier, score in scores.items():
                 record = self._records[identifier]
+                if content_types and record.content_type not in content_types:
+                    continue
+                if mime_types and record.mime_type not in mime_types:
+                    continue
+                if source_uri and record.source_uri != source_uri:
+                    continue
                 if query.casefold() in record.transcription.casefold():
                     score += len(query_terms)
                 result = asdict(record)
