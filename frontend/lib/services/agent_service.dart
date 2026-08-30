@@ -209,8 +209,17 @@ class AgentService {
     // Classify before touching the local index. General conversation (including
     // greetings) must not incur a memory/index lookup.
     final intent = classifyIntent(prompt);
-    debugPrint('AGENT_ROUTE intent=${intent.name} prompt="${prompt.trim()}"');
-    final needsRetrieval = intent == AgentIntent.fileSearch;
+    // A prompt earns a retrieval pass in two cases: an explicit file/search
+    // request (keyword-classified), or a natural-language question that reads
+    // like it asks about the user's own content ("when is the budget meeting").
+    // The implied case must never hard-stop on empty evidence — it falls back
+    // to an ordinary chat answer — so a misread greeting is never punished.
+    final explicitFile = intent == AgentIntent.fileSearch;
+    final impliedQuery =
+        intent == AgentIntent.generalChat && _looksLikeContentQuestion(prompt);
+    final needsRetrieval = explicitFile || impliedQuery;
+    debugPrint(
+        'AGENT_ROUTE intent=${intent.name} retrieval=$needsRetrieval implied=$impliedQuery prompt="${prompt.trim()}"');
     List<RetrievedEvidence> evidence = const [];
     if (needsRetrieval) {
       try {
@@ -228,13 +237,23 @@ class AgentService {
           evidence =
               await _retrievalTool.search(RetrievalRequest(query: prompt));
         }
+        // For an implied question, keep only sufficiently-relevant matches so a
+        // stray semantic hit cannot ground an unrelated answer. Explicit file
+        // requests keep every match — the user asked to search.
+        if (impliedQuery) {
+          evidence = evidence
+              .where((item) => (item.score ?? 0) >= _kImpliedRelevanceFloor)
+              .toList();
+        }
       } on RetrievalException catch (error) {
         return _retrievalFailureMessage(error);
       } catch (error) {
         debugPrint('Local retrieval unavailable for this turn: $error');
       }
     }
-    if (needsRetrieval && evidence.isEmpty) return _noEvidenceMessage(prompt);
+    // Only an explicit file request is answered with a hard "no evidence" stop.
+    // An implied question that finds nothing proceeds as an ordinary chat turn.
+    if (explicitFile && evidence.isEmpty) return _noEvidenceMessage(prompt);
 
     final activeModel = modelConfig ?? AIModelConfig.availableModels.first;
     if (activeModel.isLocal || backendMode == AgentBackendMode.localOnDevice) {
@@ -405,6 +424,31 @@ class AgentService {
             caseSensitive: false)
         .hasMatch(normalized);
     return isFileQuery ? AgentIntent.fileSearch : AgentIntent.generalChat;
+  }
+
+  /// Ranking-signal floor (cosine for the semantic path, BM25 for lexical)
+  /// below which an *implied* question's match is treated as noise, not
+  /// grounding. Kept low so a genuine answer is never dropped; explicit file
+  /// requests bypass it entirely.
+  static const double _kImpliedRelevanceFloor = 0.2;
+
+  /// True when a general prompt reads like a question about the user's own
+  /// stored content: an interrogative that also carries a personal or definite
+  /// reference ("my", "our", "the", "this"). Greetings and open-domain trivia
+  /// fall out because they either are not questions or name nothing specific.
+  /// Explicit file keywords are already handled by [classifyIntent]; this only
+  /// rescues natural questions that carry no magic keyword.
+  bool _looksLikeContentQuestion(String prompt) {
+    final normalized = prompt.trim().toLowerCase();
+    if (normalized.isEmpty) return false;
+    final isInterrogative = normalized.endsWith('?') ||
+        RegExp(r'^(who|what|when|where|which|whose|how many|how much)\b')
+            .hasMatch(normalized) ||
+        RegExp(r'\b(when|where|what|which)\s+(is|are|was|were|will|does|did|do)\b')
+            .hasMatch(normalized);
+    final referencesOwnContent =
+        RegExp(r'\b(my|mine|our|the|this|that)\b').hasMatch(normalized);
+    return isInterrogative && referencesOwnContent;
   }
 
   AgentAction? _parseToolAction(String response) {

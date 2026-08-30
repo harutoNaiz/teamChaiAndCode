@@ -15,3 +15,4 @@ frontend/.flutter-plugins-dependencies
 
 # Generated CSV catalog (refresh index export; never the source of truth)
 catalog/
+frontend/android/.kotlin/
