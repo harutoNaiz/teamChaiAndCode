@@ -59,7 +59,11 @@ class RetrievedEvidence {
         'index_id': identifier,
         'content_type': contentType,
         if (page != null) 'page': page,
-        'snippet': snippet,
+        // The retrieval result owns the extracted text (PDF text layer, OCR,
+        // transcript, or chat record). This—not a display snippet—is the
+        // grounded context sent to the local LLM. URI and filename remain UI
+        // metadata and are never placed in the model prompt.
+        'extracted_context': transcription,
       };
 
   String get citation =>

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.database.Cursor
 import android.graphics.BitmapFactory
+import android.graphics.Rect
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Handler
@@ -12,10 +13,14 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.util.Log
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.PluginRegistry
@@ -144,10 +149,28 @@ class LocalScannerBridge(
 
         val uri = data.data!!
         try {
-            val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            // Persist exactly the access flags supplied by DocumentsUI. Using
+            // a hard-coded flag and swallowing a failure made a selected tree
+            // appear to work once, then disappear on the next refresh/start.
+            val takeFlags = data.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+            require(takeFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) {
+                "Folder picker did not grant read access"
+            }
             appContext.contentResolver.takePersistableUriPermission(uri, takeFlags)
-        } catch (_: Exception) {
-            // Some providers don't support persistable flags
+            require(
+                appContext.contentResolver.persistedUriPermissions.any {
+                    it.uri == uri && it.isReadPermission
+                }
+            ) { "Android did not persist read access for the selected folder" }
+            Log.i(LOG_TAG, "Persisted folder access uri=$uri")
+        } catch (error: Exception) {
+            Log.e(LOG_TAG, "Unable to persist folder access uri=$uri", error)
+            currentResult.error(
+                "folder_permission_not_persisted",
+                "Could not retain access to this folder: ${error.message}",
+                null,
+            )
+            return true
         }
 
         executor.execute {
@@ -295,6 +318,13 @@ class LocalScannerBridge(
     }
 
     private fun processPdf(uri: Uri, displayName: String, lastModified: Long): List<Map<String, Any?>> {
+        val embeddedTextRecords = extractPdfTextLayer(uri, displayName, lastModified)
+        if (embeddedTextRecords.isNotEmpty()) {
+            return embeddedTextRecords
+        }
+
+        // A scanned PDF has no text layer. Render each page and use local ML
+        // Kit OCR only in that case.
         val records = mutableListOf<Map<String, Any?>>()
         var pfd: ParcelFileDescriptor? = null
         var renderer: PdfRenderer? = null
@@ -306,13 +336,22 @@ class LocalScannerBridge(
                 for (pageIndex in 0 until pageCount) {
                     val pageNum = pageIndex + 1
                     val page = renderer.openPage(pageIndex)
-                    // Render page bitmap for OCR
+                    // Render at 2x native page size. PDF points map to a small
+                    // bitmap at 1x and ML Kit commonly returns no text for
+                    // normal document-sized fonts at that resolution.
+                    val renderedWidth = page.width * PDF_OCR_RENDER_SCALE
+                    val renderedHeight = page.height * PDF_OCR_RENDER_SCALE
                     val bitmap = android.graphics.Bitmap.createBitmap(
-                        page.width,
-                        page.height,
+                        renderedWidth,
+                        renderedHeight,
                         android.graphics.Bitmap.Config.ARGB_8888
                     )
-                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    page.render(
+                        bitmap,
+                        Rect(0, 0, renderedWidth, renderedHeight),
+                        null,
+                        PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY,
+                    )
                     page.close()
 
                     val stream = ByteArrayOutputStream()
@@ -334,16 +373,66 @@ class LocalScannerBridge(
                         )
                         indexBridge.indexDirectly(recordMap, "image_ocr")
                         records.add(recordMap)
+                        Log.i(LOG_TAG, "Indexed PDF OCR page=$pageNum uri=$uri")
+                    } else {
+                        Log.w(LOG_TAG, "OCR returned no text for PDF page=$pageNum uri=$uri")
                     }
                 }
             }
-        } catch (_: Exception) {
-            // Do not derive faux text from PDF binary data. Native text/PDF OCR
-            // must be implemented by a real local extractor before indexing.
-            return emptyList()
+        } catch (error: Exception) {
+            // Never manufacture text from PDF bytes. Report the extraction
+            // failure so it is diagnosable instead of silently losing a source.
+            Log.e(LOG_TAG, "PDF OCR failed for uri=$uri", error)
         } finally {
             renderer?.close()
             pfd?.close()
+        }
+        return records
+    }
+
+    private fun extractPdfTextLayer(
+        uri: Uri,
+        displayName: String,
+        lastModified: Long,
+    ): List<Map<String, Any?>> {
+        val records = mutableListOf<Map<String, Any?>>()
+        try {
+            PDFBoxResourceLoader.init(appContext)
+            appContext.contentResolver.openInputStream(uri)?.use { input ->
+                PDDocument.load(input).use { document ->
+                    val stripper = PDFTextStripper()
+                    for (pageNum in 1..document.numberOfPages) {
+                        stripper.startPage = pageNum
+                        stripper.endPage = pageNum
+                        val text = stripper.getText(document).trim()
+                        if (text.isBlank()) continue
+
+                        val recordId = sha256("$uri|page:$pageNum|$lastModified")
+                        val recordMap = mapOf(
+                            "id" to recordId,
+                            "source_uri" to uri.toString(),
+                            "display_name" to displayName,
+                            "mime_type" to "application/pdf",
+                            "content_type" to "pdf_text",
+                            "page" to pageNum,
+                            "transcription" to text,
+                            "modified_at" to if (lastModified > 0) lastModified else System.currentTimeMillis(),
+                        )
+                        // `text` is the trusted bridge entry point; it
+                        // explicitly allows the more-specific `pdf_text`
+                        // record type and preserves that type in the catalog.
+                        indexBridge.indexDirectly(recordMap, "text")
+                        records.add(recordMap)
+                    }
+                }
+            }
+            if (records.isNotEmpty()) {
+                Log.i(LOG_TAG, "Indexed PDF text layer pages=${records.size} uri=$uri")
+            }
+        } catch (error: Exception) {
+            // An invalid/encrypted PDF may still render successfully, so keep
+            // the local OCR fallback available rather than abandoning it.
+            Log.w(LOG_TAG, "PDF text-layer extraction unavailable uri=$uri", error)
         }
         return records
     }
@@ -362,7 +451,7 @@ class LocalScannerBridge(
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         return try {
             val result = Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap, 0)))
-            result.text.trim().also { require(it.isNotEmpty()) { "OCR returned empty text" } }
+            result.text.trim()
         } finally {
             recognizer.close()
         }
@@ -381,6 +470,8 @@ class LocalScannerBridge(
     }
 
     companion object {
+        private const val LOG_TAG = "TeamChaiScanner"
+        private const val PDF_OCR_RENDER_SCALE = 2
         const val REQUEST_CODE_PICK_FOLDER = 2001
         const val REQUEST_CODE_PICK_DOCUMENT = 2002
     }

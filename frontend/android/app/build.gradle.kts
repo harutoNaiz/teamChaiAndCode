@@ -10,6 +10,9 @@ dependencies {
     implementation("androidx.appsearch:appsearch-local-storage:1.1.0")
     implementation("com.google.mediapipe:tasks-text:1.0.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    // Extract the embedded text layer first; OCR remains the fallback for
+    // scanned/image-only PDFs. This stays entirely on-device.
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     // Pin the stable release so builds remain reproducible (latest alpha may
     // require a newer Kotlin compiler than the Flutter toolchain).

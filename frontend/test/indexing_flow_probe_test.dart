@@ -18,7 +18,7 @@ void main() {
 
     final modelContext = evidence.toModelContext();
     expect(modelContext['index_id'], 'idx-probe-1');
-    expect(modelContext['snippet'], contains('Paris'));
+    expect(modelContext['extracted_context'], contains('Paris'));
     expect(modelContext, isNot(contains('source_uri')));
     expect(modelContext, isNot(contains('open_uri')));
     expect(evidence.openUri, 'content://documents/probe.pdf');

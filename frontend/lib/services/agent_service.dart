@@ -215,7 +215,19 @@ class AgentService {
     if (needsRetrieval) {
       try {
         await _chatMemoryIndex.syncSession(session);
-        evidence = await _retrievalTool.search(RetrievalRequest(query: prompt));
+        // File requests must favour actual locally-indexed sources over a
+        // matching chat transcript. Chat records remain a fallback so prior
+        // conversations are still searchable when no file evidence exists.
+        evidence = await _retrievalTool.search(
+          RetrievalRequest(
+            query: prompt,
+            contentTypes: const {'pdf_text', 'pdf_ocr', 'image_ocr', 'text'},
+          ),
+        );
+        if (evidence.isEmpty) {
+          evidence =
+              await _retrievalTool.search(RetrievalRequest(query: prompt));
+        }
       } on RetrievalException catch (error) {
         return _retrievalFailureMessage(error);
       } catch (error) {
@@ -309,6 +321,7 @@ class AgentService {
             _sanitizeModelResponse(response), evidence),
         timestamp: DateTime.now(),
         thoughtProcess: 'Model: ${model.name} (LiteRT-LM on device)',
+        citationIds: evidence.map((item) => item.identifier).toList(),
         actions: plannedAction == null ? null : [plannedAction],
       );
       _evidenceByMessageId[message.id] = evidence;
@@ -366,6 +379,7 @@ class AgentService {
           _ensureEvidenceCitations(_sanitizeModelResponse(reply), evidence),
       timestamp: DateTime.now(),
       thoughtProcess: 'Model: ${model.openRouterModelId} (OpenRouter)',
+      citationIds: evidence.map((item) => item.identifier).toList(),
     );
   }
 

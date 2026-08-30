@@ -197,12 +197,27 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
 
     private fun search(request: SearchRequest): List<Map<String, Any?>> {
         val query = request.query
+        // AppSearch parses the query string as a query-language expression.
+        // User prompts are ordinary natural language and may contain characters
+        // such as quotes, periods, or colons that the parser treats as syntax.
+        // Never send raw prompt text to that parser.
+        val lexicalQuery = safeLexicalQuery(query)
         val lexicalSpec = SearchSpec.Builder()
             .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
             .setSnippetCount(1)
             .setSnippetCountPerProperty(1)
             .build()
-        val lexical = collectResults(appSearch().search(query, lexicalSpec), request)
+        val lexical = if (lexicalQuery.isBlank()) {
+            emptyList()
+        } else {
+            try {
+                collectResults(appSearch().search(lexicalQuery, lexicalSpec), request)
+            } catch (_: Exception) {
+                // A lexical miss or parser/provider issue must not prevent the
+                // semantic retrieval fallback from answering the user.
+                emptyList()
+            }
+        }
         if (lexical.isNotEmpty()) return lexical
         if (!query.contains(Regex("\\s"))) return lexical
         val queryEmbedding = EmbeddingVector(embedder.embed(query), EMBEDDING_MODEL_SIGNATURE)
@@ -218,6 +233,13 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
         )
         return collectResults(searchResults, request)
     }
+
+    /** Converts untrusted natural-language input into literal searchable terms. */
+    private fun safeLexicalQuery(query: String): String =
+        Regex("[\\p{L}\\p{N}]+")
+            .findAll(query)
+            .map { it.value }
+            .joinToString(" ")
 
     private fun collectResults(
         searchResults: androidx.appsearch.app.SearchResults,

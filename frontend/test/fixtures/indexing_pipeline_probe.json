@@ -49,7 +49,7 @@
   "expected_model_context": {
     "index_id": "idx-text-001",
     "content_type": "text",
-    "snippet": "Paris is on the bucket list."
+    "extracted_context": "Paris is on the bucket list."
   },
   "csv_export_response": {
     "path": "/data/user/0/com.example.team_chai_and_code/files/catalog/catalog_export.csv",
