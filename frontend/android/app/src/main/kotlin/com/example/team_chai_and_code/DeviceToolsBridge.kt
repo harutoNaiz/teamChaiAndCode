@@ -1,12 +1,11 @@
 package com.example.team_chai_and_code
 
-import android.content.ContentValues
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.CalendarContract
 import android.provider.DocumentsContract
-import android.provider.MediaStore
 import android.net.Uri
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -40,7 +39,10 @@ class DeviceToolsBridge(private val context: Context) : MethodChannel.MethodCall
         val intent = Intent(Intent.ACTION_INSERT).apply {
             data = CalendarContract.Events.CONTENT_URI
             putExtra(CalendarContract.Events.TITLE, title)
-            parameters["at"]?.toString()?.toLongOrNull()?.let {
+            // `at` may arrive as epoch-millis (planner already resolved a time)
+            // or as an ISO-8601 string; either sets the event start so the
+            // calendar composer opens pre-filled.
+            parseEventBeginMillis(parameters["at"]?.toString())?.let {
                 putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, it)
             }
         }
@@ -51,69 +53,31 @@ class DeviceToolsBridge(private val context: Context) : MethodChannel.MethodCall
     private fun createNote(parameters: Map<String, Any?>, result: MethodChannel.Result) {
         val title = parameters["title"]?.toString()?.trim().orEmpty()
         val content = parameters["content"]?.toString()?.trim().orEmpty()
-        require(title.isNotEmpty()) { "Note title is required" }
+        // The body is the payload the user asked to capture; a missing title is
+        // tolerable (notes apps derive one), an empty body is not.
         require(content.isNotEmpty()) { "Note content is required" }
-        val filename = if (title.endsWith(".md")) title else "$title.md"
-        val resolver = context.contentResolver
 
-        // 1) Preferred: create the note inside a folder the user already granted
-        //    AND that the scanner walks, so the file is written with its content
-        //    (ACTION_CREATE_DOCUMENT alone only makes an empty file — it never
-        //    persists EXTRA_TEXT) and is immediately indexable, with no second
-        //    picker. Needs a write-persisted tree grant.
-        val writableTree = resolver.persistedUriPermissions
-            .firstOrNull { it.isWritePermission && DocumentsContract.isTreeUri(it.uri) }
-            ?.uri
-        if (writableTree != null) {
-            val parentDoc = DocumentsContract.buildDocumentUriUsingTree(
-                writableTree, DocumentsContract.getTreeDocumentId(writableTree))
-            val docUri = DocumentsContract.createDocument(
-                resolver, parentDoc, "text/markdown", filename)
-                ?: error("The folder provider rejected note creation")
-            resolver.openOutputStream(docUri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
-                ?: error("Could not open the new note for writing")
-            result.success(mapOf("status" to "completed", "uri" to docUri.toString(),
-                "display_name" to filename))
-            return
+        // Hand the note to whatever Notes app the user has (Google Keep,
+        // Samsung Notes, …) instead of writing a Markdown file ourselves. The
+        // note then lives in the user's real notes store — editable, synced —
+        // rather than as an orphaned file in the corpus folder.
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            if (title.isNotEmpty()) putExtra(Intent.EXTRA_SUBJECT, title)
+            putExtra(Intent.EXTRA_TEXT, content)
         }
-
-        // 2) No writable tree yet, but a read tree exists (scanner is set up).
-        //    Write the note into that same physical folder via MediaStore so it
-        //    still lands where the scanner looks, without needing a picker. The
-        //    read tree's document id encodes the relative path, e.g.
-        //    "primary:Download/teamchai-test".
-        val readTree = resolver.persistedUriPermissions
-            .firstOrNull { it.isReadPermission && DocumentsContract.isTreeUri(it.uri) }
-            ?.uri
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && readTree != null) {
-            val relPath = DocumentsContract.getTreeDocumentId(readTree)
-                .substringAfter(':').trim('/')
-            if (relPath.startsWith("Download", ignoreCase = true)) {
-                val values = ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, filename)
-                    put(MediaStore.Downloads.MIME_TYPE, "text/markdown")
-                    put(MediaStore.Downloads.RELATIVE_PATH, relPath)
-                }
-                val docUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                    ?: error("Could not create the note in $relPath")
-                resolver.openOutputStream(docUri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
-                    ?: error("Could not open the new note for writing")
-                result.success(mapOf("status" to "completed", "uri" to docUri.toString(),
-                    "display_name" to filename))
-                return
-            }
+        // Guard before launching: ACTION_SEND/text-plain resolves on virtually
+        // every device, but a handler-less device should fail with a clear
+        // message rather than an uncaught ActivityNotFoundException.
+        if (send.resolveActivity(context.packageManager) == null) {
+            error("No app is available to save the note")
         }
-
-        // 3) Nothing granted yet: fall back to the system create-document picker.
-        //    A fire-and-forget intent cannot write content, so this only creates
-        //    the file; the user is nudged to grant a folder for the seamless path.
-        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "text/markdown"
-            putExtra(Intent.EXTRA_TITLE, filename)
-        }
-        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        result.success(mapOf("status" to "note_save_confirmation_opened"))
+        // A chooser lets the user pick the destination app and avoids silently
+        // binding to an unexpected default share target.
+        val chooser = Intent.createChooser(send, "Save note to…")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(chooser)
+        result.success(mapOf("status" to "note_share_opened"))
     }
 
     private fun renameFile(parameters: Map<String, Any?>, result: MethodChannel.Result) {
@@ -126,11 +90,97 @@ class DeviceToolsBridge(private val context: Context) : MethodChannel.MethodCall
     }
 
     private fun moveFile(parameters: Map<String, Any?>, result: MethodChannel.Result) {
-        val source = Uri.parse(parameters["source_uri"]?.toString() ?: error("source_uri is required"))
-        val sourceParent = Uri.parse(parameters["source_parent_uri"]?.toString() ?: error("source_parent_uri is required"))
-        val destination = Uri.parse(parameters["destination_uri"]?.toString() ?: error("destination_uri is required"))
-        val moved = DocumentsContract.moveDocument(context.contentResolver, source, sourceParent, destination)
-            ?: error("The provider rejected the move")
-        result.success(mapOf("status" to "completed", "uri" to moved.toString()))
+        // Contract: the Dart layer resolves the planner's filename to an
+        // authorised SAF document URI (source_uri) and passes the target folder
+        // NAME (destination). The move stays inside the granted tree — SAF
+        // cannot move a document across separate grants/authorities.
+        val source = Uri.parse(
+            parameters["source_uri"]?.toString() ?: error("source_uri is required"))
+        val destinationName = parameters["destination"]?.toString()?.trim().orEmpty()
+        require(destinationName.isNotEmpty()) { "A destination folder name is required" }
+        val resolver = context.contentResolver
+
+        val writableTree = resolver.persistedUriPermissions
+            .firstOrNull { it.isWritePermission && DocumentsContract.isTreeUri(it.uri) }
+            ?.uri ?: error("No writable folder is authorised for moves")
+        val treeRoot = DocumentsContract.buildDocumentUriUsingTree(
+            writableTree, DocumentsContract.getTreeDocumentId(writableTree))
+
+        // Find-or-create the destination subfolder directly under the tree root
+        // so repeated "move to Receipts" calls reuse one folder rather than
+        // failing or spawning duplicates.
+        val destinationDir = findChildDir(resolver, writableTree, treeRoot, destinationName)
+            ?: DocumentsContract.createDocument(
+                resolver, treeRoot, DocumentsContract.Document.MIME_TYPE_DIR, destinationName)
+            ?: error("Could not create destination folder \"$destinationName\"")
+
+        // The corpus keeps every source directly under the tree root, so its
+        // parent for the move is that same tree-root document.
+        val moved = DocumentsContract.moveDocument(resolver, source, treeRoot, destinationDir)
+            ?: error("The provider rejected moving the file into \"$destinationName\"")
+        result.success(mapOf(
+            "status" to "completed",
+            "uri" to moved.toString(),
+            "destination" to destinationName))
+    }
+
+    /**
+     * Returns the tree-root child directory whose display name matches [name]
+     * (case-insensitive), or null if none exists yet. Used to reuse an existing
+     * destination folder before creating a new one.
+     */
+    private fun findChildDir(
+        resolver: ContentResolver,
+        treeUri: Uri,
+        parentDoc: Uri,
+        name: String,
+    ): Uri? {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri, DocumentsContract.getDocumentId(parentDoc))
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+        )
+        resolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val childMime = cursor.getString(2)
+                val childName = cursor.getString(1)
+                if (childMime == DocumentsContract.Document.MIME_TYPE_DIR &&
+                    childName != null && childName.equals(name, ignoreCase = true)) {
+                    return DocumentsContract.buildDocumentUriUsingTree(treeUri, cursor.getString(0))
+                }
+            }
+        }
+        return null
+    }
+
+    /**
+     * Normalises a reminder `at` value to event-begin millis. Accepts either
+     * epoch-millis or an ISO-8601 string; returns null when absent/unparseable
+     * so the calendar composer still opens (the user just picks the time).
+     */
+    private fun parseEventBeginMillis(raw: String?): Long? {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return null
+        // Fast path: already epoch-millis.
+        value.toLongOrNull()?.let { return it }
+        // ISO parsing needs java.time (API 26+). The app ships without core
+        // library desugaring, so never load those classes on older devices —
+        // a NoClassDefFoundError there would not be caught below.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        return try {
+            // Offset/zoned instant, e.g. "2026-08-30T15:00:00+05:30" or "…Z".
+            java.time.OffsetDateTime.parse(value).toInstant().toEpochMilli()
+        } catch (_: Exception) {
+            try {
+                // Zoneless local datetime, e.g. "2026-08-30T15:00" -> device tz.
+                java.time.LocalDateTime.parse(value)
+                    .atZone(java.time.ZoneId.systemDefault())
+                    .toInstant().toEpochMilli()
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 }

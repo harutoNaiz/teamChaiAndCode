@@ -4,6 +4,7 @@ import '../models/chat_message.dart';
 import '../models/ai_model_config.dart';
 import '../services/chat_storage_service.dart';
 import '../services/agent_service.dart';
+import '../services/scanner_service.dart';
 import '../local_index_bridge.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_drawer.dart';
@@ -18,7 +19,8 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen>
+    with SingleTickerProviderStateMixin {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
 
@@ -26,15 +28,22 @@ class _ChatScreenState extends State<ChatScreen> {
   AIModelConfig _currentModel = AIModelConfig.availableModels.first;
   bool _isGenerating = false;
   bool _isLoading = true;
+  bool _isRefreshing = false;
+  late final AnimationController _refreshController;
 
   @override
   void initState() {
     super.initState();
+    _refreshController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
     _initializeChat();
   }
 
   @override
   void dispose() {
+    _refreshController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -208,6 +217,54 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// Re-index new/changed files from authorised sources. Mirrors the drawer's
+  /// refresh tile but lives in the app bar for one-tap reach, with a subtle
+  /// spin while it runs and a result SnackBar on completion.
+  Future<void> _handleRefreshIndex() async {
+    if (_isRefreshing) return;
+    setState(() => _isRefreshing = true);
+    _refreshController.repeat();
+    final result = await ScannerService.instance.refreshIndex();
+    if (!mounted) return;
+    _refreshController.stop();
+    _refreshController.value = 0;
+    setState(() => _isRefreshing = false);
+    final messenger = ScaffoldMessenger.of(context);
+    if (result.isSuccess) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+              'Indexed ${result.indexedCount} new item(s). Catalog: ${result.catalogRecordCount} record(s).'),
+          backgroundColor: AppTheme.brandAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Refresh failed: ${result.error}'),
+          backgroundColor: AppTheme.dangerRed,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  /// Opens a native search surface over the chat, reusing the same
+  /// title + message-content matching as the drawer's chat search.
+  Future<void> _openSearch() async {
+    final sessions = await ChatStorageService.instance.getSessions();
+    if (!mounted) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final selected = await showSearch<ChatSession?>(
+      context: context,
+      delegate: _ChatSearchDelegate(sessions: sessions, isDark: isDark),
+    );
+    if (selected != null && mounted) {
+      _selectSession(selected);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -231,9 +288,21 @@ class _ChatScreenState extends State<ChatScreen> {
         currentModel: _currentModel,
       ),
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.menu_rounded, size: 22),
-          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+        leadingWidth: 100,
+        leading: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.menu_rounded, size: 22),
+              tooltip: 'Menu',
+              onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+            ),
+            IconButton(
+              icon: const Icon(Icons.search_rounded, size: 22),
+              tooltip: 'Search chats',
+              onPressed: _openSearch,
+            ),
+          ],
         ),
         title: InkWell(
           onTap: _showModelSelectorSheet,
@@ -247,12 +316,17 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  _currentModel.name,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
+                Flexible(
+                  child: Text(
+                    _currentModel.name,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 4),
@@ -266,6 +340,14 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ),
         actions: [
+          IconButton(
+            icon: RotationTransition(
+              turns: _refreshController,
+              child: const Icon(Icons.refresh_rounded, size: 22),
+            ),
+            tooltip: 'Re-index new files',
+            onPressed: _isRefreshing ? null : _handleRefreshIndex,
+          ),
           IconButton(
             icon: const Icon(Icons.edit_square, size: 20),
             tooltip: 'New Chat',
@@ -326,7 +408,7 @@ class _ChatScreenState extends State<ChatScreen> {
             height: 32,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [AppTheme.brandAccent, Color(0xFF0D8C6C)],
+                colors: [AppTheme.brandAccent, Color(0xFF0060DF)],
               ),
               borderRadius: BorderRadius.circular(16),
             ),
@@ -396,6 +478,95 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+
+/// Native full-screen search over saved chats. Matches on chat title and on
+/// message content, mirroring the drawer's filter, and returns the picked
+/// session to the caller.
+class _ChatSearchDelegate extends SearchDelegate<ChatSession?> {
+  _ChatSearchDelegate({required this.sessions, required this.isDark})
+      : super(searchFieldLabel: 'Search chats\u2026');
+
+  final List<ChatSession> sessions;
+  final bool isDark;
+
+  List<ChatSession> _results() {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return sessions;
+    return sessions.where((s) {
+      final matchTitle = s.title.toLowerCase().contains(q);
+      final matchMessages =
+          s.messages.any((m) => m.content.toLowerCase().contains(q));
+      return matchTitle || matchMessages;
+    }).toList();
+  }
+
+  @override
+  List<Widget> buildActions(BuildContext context) => [
+        if (query.isNotEmpty)
+          IconButton(
+            icon: const Icon(Icons.clear_rounded),
+            tooltip: 'Clear',
+            onPressed: () => query = '',
+          ),
+      ];
+
+  @override
+  Widget buildLeading(BuildContext context) => IconButton(
+        icon: const Icon(Icons.arrow_back_rounded),
+        tooltip: 'Back',
+        onPressed: () => close(context, null),
+      );
+
+  @override
+  Widget buildResults(BuildContext context) => _buildResultsList(context);
+
+  @override
+  Widget buildSuggestions(BuildContext context) => _buildResultsList(context);
+
+  Widget _buildResultsList(BuildContext context) {
+    final results = _results();
+    if (results.isEmpty) {
+      return Center(
+        child: Text(
+          query.trim().isEmpty
+              ? 'Search your conversations'
+              : 'No matching chats',
+          style: TextStyle(
+            color: isDark ? AppTheme.darkTextSecondary : Colors.black45,
+            fontSize: 14,
+          ),
+        ),
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      itemCount: results.length,
+      separatorBuilder: (_, __) =>
+          const Divider(height: 1, thickness: 0.4, indent: 56),
+      itemBuilder: (ctx, i) {
+        final s = results[i];
+        return ListTile(
+          leading: Icon(
+            Icons.chat_bubble_outline_rounded,
+            size: 18,
+            color: isDark ? AppTheme.darkTextSecondary : Colors.black54,
+          ),
+          title: Text(
+            s.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 14.5,
+              color: isDark ? AppTheme.darkTextPrimary : Colors.black87,
+            ),
+          ),
+          onTap: () => close(context, s),
+        );
+      },
     );
   }
 }

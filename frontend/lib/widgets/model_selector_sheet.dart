@@ -228,11 +228,13 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
               // Pull Handle
               Center(
                 child: Container(
-                  width: 40,
+                  width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey.withOpacity(0.4),
-                    borderRadius: BorderRadius.circular(2),
+                    color: isDark
+                        ? AppTheme.darkTextTertiary.withOpacity(0.35)
+                        : Colors.black.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(100),
                   ),
                 ),
               ),
@@ -242,11 +244,14 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
               Row(
                 children: [
                   const Icon(Icons.tune_rounded,
-                      color: AppTheme.brandAccent, size: 22),
-                  const SizedBox(width: 8),
+                      color: AppTheme.brandAccent, size: 20),
+                  const SizedBox(width: 10),
                   const Text(
-                    'Select AI Engine & Free Models',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                    'Model Library',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.3),
                   ),
                 ],
               ),
@@ -255,12 +260,10 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
               // ===============================================================
               // SECTION 1: On-Device / Local Open-Source Models (LiteRT)
               // ===============================================================
-              _buildSectionHeader(
-                  '📱 ON-DEVICE OPEN-SOURCE MODELS (LITERT)', isDark),
+              _buildSectionHeader('On-device · LiteRT', isDark),
               const SizedBox(height: 8),
-              ...AIModelConfig.localModels
-                  .map((model) => _buildLocalModelTile(model, isDark)),
-              const SizedBox(height: 16),
+              _buildLocalGroup(isDark),
+              const SizedBox(height: 22),
 
               // ===============================================================
               // SECTION 2: Free OpenRouter Models (Dynamic Dropdown / Filter)
@@ -270,8 +273,8 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                 children: [
                   _buildSectionHeader(
                       _allModelsLoaded
-                          ? '🌐 OPENROUTER MODELS (${_freeModels.length} AVAILABLE)'
-                          : '🌐 FREE OPENROUTER MODELS (${_freeModels.length} AVAILABLE)',
+                          ? 'OpenRouter · ${_freeModels.length} models'
+                          : 'OpenRouter · ${_freeModels.length} free models',
                       isDark),
                   if (_isSyncingModels)
                     const SizedBox(
@@ -304,12 +307,14 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
 
               // Search Filter for Free Models
               Container(
-                height: 38,
+                height: 42,
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? const Color(0xFF222222)
-                      : const Color(0xFFF1F3F5),
-                  borderRadius: BorderRadius.circular(8),
+                  color: isDark ? AppTheme.darkInset : const Color(0xFFF1F3F5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: isDark
+                          ? AppTheme.hairline
+                          : const Color(0xFFE5E7EB)),
                 ),
                 child: TextField(
                   controller: _searchController,
@@ -333,83 +338,93 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
 
               // Free Models Dropdown List
               Container(
-                constraints: const BoxConstraints(maxHeight: 240),
+                constraints: const BoxConstraints(maxHeight: 260),
+                clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
+                  color: isDark ? AppTheme.darkElevated : Colors.white,
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(
                       color: isDark
-                          ? AppTheme.darkBorder
+                          ? AppTheme.hairline
                           : const Color(0xFFE5E7EB)),
                 ),
                 child: ListView.separated(
                   shrinkWrap: true,
+                  padding: EdgeInsets.zero,
                   itemCount: _filteredFreeModels.length,
                   separatorBuilder: (ctx, idx) => Divider(
                       height: 1,
-                      thickness: 0.5,
+                      thickness: 1,
+                      indent: 14,
+                      endIndent: 14,
                       color: isDark
-                          ? AppTheme.darkBorder
-                          : const Color(0xFFE5E7EB)),
+                          ? AppTheme.hairline
+                          : const Color(0xFFEEF0F2)),
                   itemBuilder: (ctx, idx) {
                     final model = _filteredFreeModels[idx];
                     final isSelected = widget.currentModel.id == model.id ||
                         widget.currentModel.openRouterModelId ==
                             model.openRouterModelId;
 
-                    return ListTile(
-                      dense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 2),
-                      title: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              model.name,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.w500,
-                                color: isSelected
-                                    ? AppTheme.brandAccent
-                                    : (isDark ? Colors.white : Colors.black87),
+                    return Material(
+                      color: isSelected
+                          ? AppTheme.accentSubtle
+                          : Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          widget.onSelectModel(model);
+                          Navigator.pop(context);
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 11),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      model.name,
+                                      style: TextStyle(
+                                        fontSize: 13.5,
+                                        fontWeight: isSelected
+                                            ? FontWeight.w700
+                                            : FontWeight.w600,
+                                        color: isSelected
+                                            ? AppTheme.brandAccent
+                                            : (isDark
+                                                ? AppTheme.darkTextPrimary
+                                                : Colors.black87),
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      model.openRouterModelId,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontFamily: 'monospace',
+                                        color: isDark
+                                            ? AppTheme.darkTextTertiary
+                                            : Colors.black45,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
                               ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                              const SizedBox(width: 10),
+                              if (isSelected)
+                                const Icon(Icons.check_rounded,
+                                    color: AppTheme.brandAccent, size: 20)
+                              else
+                                const SizedBox(width: 20),
+                            ],
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              'FREE',
-                              style: TextStyle(
-                                  fontSize: 9.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.green),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
-                      subtitle: Text(
-                        model.openRouterModelId,
-                        style: const TextStyle(
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                            color: Colors.grey),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: isSelected
-                          ? const Icon(Icons.check_circle,
-                              color: AppTheme.brandAccent, size: 18)
-                          : null,
-                      onTap: () {
-                        widget.onSelectModel(model);
-                        Navigator.pop(context);
-                      },
                     );
                   },
                 ),
@@ -419,26 +434,29 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
               // ===============================================================
               // SECTION 3: OpenRouter Settings (API Key & Config)
               // ===============================================================
-              _buildSectionHeader('🔑 OPENROUTER CONFIGURATION', isDark),
+              _buildSectionHeader('OpenRouter · configuration', isDark),
               const SizedBox(height: 8),
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? const Color(0xFF242424)
-                      : const Color(0xFFF3F4F6),
-                  borderRadius: BorderRadius.circular(12),
+                  color: isDark ? AppTheme.darkElevated : const Color(0xFFF7F8FA),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(
                       color: isDark
-                          ? AppTheme.darkBorder
+                          ? AppTheme.hairline
                           : const Color(0xFFE5E7EB)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Enter your OpenRouter API key for real-time model routing:',
-                      style: TextStyle(fontSize: 12.5),
+                    Text(
+                      'Enter your OpenRouter API key for real-time model routing.',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          height: 1.35,
+                          color: isDark
+                              ? AppTheme.darkTextSecondary
+                              : const Color(0xFF4B5563)),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -453,9 +471,8 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
                               isDense: true,
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 12, vertical: 10),
-                              fillColor: isDark
-                                  ? const Color(0xFF1A1A1A)
-                                  : Colors.white,
+                              fillColor:
+                                  isDark ? AppTheme.darkInset : Colors.white,
                             ),
                           ),
                         ),
@@ -488,17 +505,47 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
 
   Widget _buildSectionHeader(String title, bool isDark) {
     return Text(
-      title,
+      title.toUpperCase(),
       style: TextStyle(
-        fontSize: 11.5,
-        fontWeight: FontWeight.bold,
-        letterSpacing: 0.5,
-        color: isDark ? AppTheme.darkTextSecondary : const Color(0xFF6B7280),
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 1.1,
+        color: isDark ? AppTheme.darkTextTertiary : const Color(0xFF9098A3),
       ),
     );
   }
 
-  Widget _buildLocalModelTile(AIModelConfig model, bool isDark) {
+  // Apple-style grouped list of on-device models: one rounded card, hairline
+  // separators, plain rows. Selection = a blue check; download = a basic
+  // download glyph; in-flight = a tappable progress ring.
+  Widget _buildLocalGroup(bool isDark) {
+    final models = AIModelConfig.localModels;
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.darkElevated : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+            color: isDark ? AppTheme.hairline : const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        children: [
+          for (int i = 0; i < models.length; i++) ...[
+            if (i > 0)
+              Divider(
+                height: 1,
+                thickness: 1,
+                indent: 48,
+                color: isDark ? AppTheme.hairline : const Color(0xFFEEF0F2),
+              ),
+            _localRow(models[i], isDark),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _localRow(AIModelConfig model, bool isDark) {
     final isSelected = widget.currentModel.id == model.id;
     final isDownloaded = _downloadedStates[model.id] ?? false;
     final sizeBytes = _modelSizes[model.id] ?? 0;
@@ -506,231 +553,141 @@ class _ModelSelectorSheetState extends State<ModelSelectorSheet> {
     final isDownloading =
         progress != null && !progress.isCompleted && !progress.isFailed;
 
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      decoration: BoxDecoration(
-        color: isSelected
-            ? AppTheme.brandAccent.withOpacity(0.08)
-            : (isDark ? const Color(0xFF262626) : Colors.white),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isSelected
-              ? AppTheme.brandAccent
-              : (isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB)),
-          width: isSelected ? 1.5 : 1,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.memory_rounded,
-                      color: Colors.purpleAccent, size: 20),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              model.name,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 14),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.purple.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              model.badge,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.purpleAccent,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        model.description,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark
-                              ? AppTheme.darkTextSecondary
-                              : const Color(0xFF6B7280),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (isSelected)
-                  const Icon(Icons.check_circle,
-                      color: AppTheme.brandAccent, size: 20),
-              ],
-            ),
-            const SizedBox(height: 10),
+    final String subtitle;
+    if (isDownloading) {
+      subtitle = 'Downloading\u2026 ${progress.percentageText}';
+    } else if (isDownloaded) {
+      subtitle =
+          'On-device \u00b7 ${(sizeBytes / (1024 * 1024)).toStringAsFixed(0)} MB';
+    } else {
+      subtitle = model.badge;
+    }
 
-            // Storage Location & Download Control
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color:
-                    isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF9FAFB),
-                borderRadius: BorderRadius.circular(8),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          if (isDownloaded) {
+            widget.onSelectModel(model);
+            Navigator.pop(context);
+          } else if (!isDownloading) {
+            _startDownload(model);
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          child: Row(
+            children: [
+              Icon(
+                Icons.memory_rounded,
+                size: 22,
+                color: isSelected
+                    ? AppTheme.brandAccent
+                    : (isDark ? AppTheme.darkTextTertiary : Colors.black45),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.folder_special_outlined,
-                          size: 14, color: Colors.grey),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'App Internal Storage: models/${model.filename}',
-                          style: const TextStyle(
-                              fontSize: 11,
-                              fontFamily: 'monospace',
-                              color: Colors.grey),
-                          overflow: TextOverflow.ellipsis,
-                        ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      model.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.2,
+                        color:
+                            isDark ? AppTheme.darkTextPrimary : Colors.black87,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  // State Actions
-                  if (isDownloading) ...[
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('Downloading: ${progress.percentageText}',
-                                style: const TextStyle(
-                                    fontSize: 12, fontWeight: FontWeight.w600)),
-                            Text(progress.downloadedSizeText,
-                                style: const TextStyle(
-                                    fontSize: 11.5, color: Colors.grey)),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        LinearProgressIndicator(
-                          value: progress.progress,
-                          color: AppTheme.brandAccent,
-                          backgroundColor: Colors.grey.withOpacity(0.2),
-                        ),
-                        const SizedBox(height: 6),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton.icon(
-                            onPressed: () => _cancelDownload(model),
-                            icon: const Icon(Icons.close,
-                                size: 14, color: AppTheme.dangerRed),
-                            label: const Text('Cancel Download',
-                                style: TextStyle(
-                                    color: AppTheme.dangerRed, fontSize: 12)),
-                          ),
-                        ),
-                      ],
                     ),
-                  ] else if (isDownloaded) ...[
-                    Row(
-                      children: [
-                        const Icon(Icons.check_circle_outline,
-                            color: AppTheme.brandAccent, size: 15),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Downloaded (${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB)',
-                          style: const TextStyle(
-                              color: AppTheme.brandAccent,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600),
-                        ),
-                        const Spacer(),
-                        if (!isSelected)
-                          ElevatedButton(
-                            onPressed: () {
-                              widget.onSelectModel(model);
-                              Navigator.pop(context);
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.brandAccent,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 4),
-                              minimumSize: Size.zero,
-                            ),
-                            child: const Text('Select Model',
-                                style: TextStyle(fontSize: 12)),
-                          ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline,
-                              size: 16, color: Colors.grey),
-                          tooltip: 'Delete downloaded model file',
-                          onPressed: () => _deleteModel(model),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
-                      ],
-                    ),
-                  ] else ...[
-                    Row(
-                      children: [
-                        const Icon(Icons.info_outline,
-                            size: 14, color: Colors.orange),
-                        const SizedBox(width: 6),
-                        const Text('Not downloaded yet',
-                            style:
-                                TextStyle(fontSize: 12, color: Colors.orange)),
-                        const Spacer(),
-                        ElevatedButton.icon(
-                          onPressed: () => _startDownload(model),
-                          icon: const Icon(Icons.download_rounded, size: 15),
-                          label: const Text('Download Model',
-                              style: TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.w600)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.brandAccent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 6),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8)),
-                            minimumSize: Size.zero,
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: isDark
+                            ? AppTheme.darkTextSecondary
+                            : Colors.black54,
+                      ),
                     ),
                   ],
-                ],
+                ),
               ),
-            ),
-          ],
+              const SizedBox(width: 10),
+              _localTrailing(
+                  model, isDark, isSelected, isDownloaded, isDownloading, progress),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _localTrailing(AIModelConfig model, bool isDark, bool isSelected,
+      bool isDownloaded, bool isDownloading, DownloadProgress? progress) {
+    if (isDownloading) {
+      // Tappable progress ring with a stop glyph = cancel.
+      return GestureDetector(
+        onTap: () => _cancelDownload(model),
+        child: SizedBox(
+          width: 30,
+          height: 30,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  value: (progress != null && progress.progress > 0)
+                      ? progress.progress
+                      : null,
+                  strokeWidth: 2.2,
+                  color: AppTheme.brandAccent,
+                  backgroundColor:
+                      isDark ? AppTheme.darkInset : const Color(0xFFE5E7EB),
+                ),
+              ),
+              const Icon(Icons.stop_rounded,
+                  size: 12, color: AppTheme.brandAccent),
+            ],
+          ),
+        ),
+      );
+    }
+    if (!isDownloaded) {
+      // Basic download icon.
+      return IconButton(
+        icon: const Icon(Icons.arrow_circle_down_rounded, size: 26),
+        color: AppTheme.brandAccent,
+        tooltip: 'Download',
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+        onPressed: () => _startDownload(model),
+      );
+    }
+    // Downloaded: basic select check + a subtle remove control.
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (isSelected)
+          const Icon(Icons.check_rounded, color: AppTheme.brandAccent, size: 22)
+        else
+          const SizedBox(width: 22),
+        const SizedBox(width: 2),
+        IconButton(
+          icon: const Icon(Icons.delete_outline_rounded, size: 19),
+          color: isDark ? AppTheme.darkTextTertiary : Colors.black38,
+          tooltip: 'Remove download',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+          onPressed: () => _deleteModel(model),
+        ),
+      ],
     );
   }
 }

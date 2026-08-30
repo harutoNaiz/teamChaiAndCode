@@ -21,16 +21,44 @@ class ChatInputBar extends StatefulWidget {
   State<ChatInputBar> createState() => _ChatInputBarState();
 }
 
-class _ChatInputBarState extends State<ChatInputBar> {
+class _ChatInputBarState extends State<ChatInputBar>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   bool _isRecording = false;
 
+  // Subtle breathing pulse, driven only while actively listening.
+  late final AnimationController _pulseController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    );
+  }
+
   @override
   void dispose() {
+    _pulseController.dispose();
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  /// Single entry point for toggling the recording state so the pulse
+  /// animation always tracks it, no matter how listening ends (tap, final
+  /// result, or error).
+  void _setRecording(bool value) {
+    if (!mounted) return;
+    setState(() => _isRecording = value);
+    if (value) {
+      _pulseController.repeat(reverse: true);
+    } else {
+      _pulseController.stop();
+      _pulseController.value = 0;
+    }
   }
 
   void _handleSend() {
@@ -44,16 +72,16 @@ class _ChatInputBarState extends State<ChatInputBar> {
   void _onMicTap() {
     if (_isRecording || ParakeetSpeechService.instance.isListening) {
       ParakeetSpeechService.instance.stopListening();
-      if (mounted) setState(() => _isRecording = false);
+      _setRecording(false);
       return;
     }
-    setState(() => _isRecording = true);
+    _setRecording(true);
     ParakeetSpeechService.instance.startListening(
       onFinalResult: (text) {
         if (!mounted) return;
         _controller.text = text;
         _controller.selection = TextSelection.collapsed(offset: text.length);
-        setState(() => _isRecording = false);
+        _setRecording(false);
       },
       onInterimResult: (text) {
         if (!mounted) return;
@@ -69,7 +97,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
       },
       onError: () {
         if (!mounted) return;
-        setState(() => _isRecording = false);
+        _setRecording(false);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text(
               'Microphone permission or speech recognition is unavailable.'),
@@ -151,19 +179,34 @@ class _ChatInputBarState extends State<ChatInputBar> {
                   constraints: const BoxConstraints(),
                 ),
               ] else if (_isRecording) ...[
-                Container(
-                  margin: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppTheme.dangerRed.withValues(alpha: 0.14),
-                  ),
-                  child: IconButton(
-                    icon: const Icon(Icons.stop_rounded,
-                        size: 22, color: AppTheme.dangerRed),
-                    onPressed: _onMicTap,
-                    padding: const EdgeInsets.all(8),
-                    constraints: const BoxConstraints(),
-                    tooltip: 'Stop listening',
+                Padding(
+                  padding: const EdgeInsets.all(5),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _onMicTap,
+                    child: AnimatedBuilder(
+                      animation: _pulseController,
+                      builder: (context, _) {
+                        final t = _pulseController.value;
+                        return Container(
+                          width: 42,
+                          height: 42,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppTheme.dangerRed
+                                .withValues(alpha: 0.10 + 0.14 * t),
+                            border: Border.all(
+                              color: AppTheme.dangerRed
+                                  .withValues(alpha: 0.30 + 0.45 * t),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: const Icon(Icons.stop_rounded,
+                              size: 20, color: AppTheme.dangerRed),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ] else if (hasText) ...[
@@ -183,18 +226,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 ),
               ] else ...[
                 IconButton(
-                  icon: Icon(
-                      ParakeetSpeechService.instance.isListening
-                          ? Icons.stop_circle_outlined
-                          : Icons.mic_none_rounded,
-                      size: 22),
+                  icon: const Icon(Icons.mic_none_rounded, size: 22),
                   color: isDark ? AppTheme.darkTextSecondary : Colors.black54,
                   onPressed: _onMicTap,
                   padding: const EdgeInsets.all(12),
                   constraints: const BoxConstraints(),
-                  tooltip: ParakeetSpeechService.instance.isListening
-                      ? 'Stop listening'
-                      : 'Use microphone',
+                  tooltip: 'Use microphone',
                 ),
               ],
             ],

@@ -25,9 +25,16 @@ class FileOperationPreview extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(top: 10),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E2228) : const Color(0xFFF8F9FA),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: opColor.withOpacity(0.4)),
+        color: isDark ? AppTheme.darkElevated : const Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: opColor.withOpacity(0.30)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.20 : 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -38,7 +45,7 @@ class FileOperationPreview extends StatelessWidget {
             decoration: BoxDecoration(
               color: opColor.withOpacity(0.12),
               borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(14)),
+                  const BorderRadius.vertical(top: Radius.circular(15)),
             ),
             child: Row(
               children: [
@@ -59,8 +66,8 @@ class FileOperationPreview extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                   decoration: BoxDecoration(
                     color: manifest.undoAvailable
-                        ? Colors.green.withOpacity(0.15)
-                        : Colors.red.withOpacity(0.12),
+                        ? AppTheme.accentSubtle
+                        : AppTheme.dangerRed.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
@@ -68,8 +75,9 @@ class FileOperationPreview extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 10.5,
                       fontWeight: FontWeight.w600,
-                      color:
-                          manifest.undoAvailable ? Colors.green : Colors.red,
+                      color: manifest.undoAvailable
+                          ? AppTheme.brandAccent
+                          : AppTheme.dangerRed,
                     ),
                   ),
                 ),
@@ -139,10 +147,13 @@ class FileOperationPreview extends StatelessWidget {
                       child: OutlinedButton(
                         onPressed: onCancel,
                         style: OutlinedButton.styleFrom(
-                          side:
-                              BorderSide(color: Colors.grey.withOpacity(0.5)),
+                          side: BorderSide(
+                              color: isDark
+                                  ? AppTheme.hairline
+                                  : const Color(0xFFD1D5DB)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
+                              borderRadius: BorderRadius.circular(12)),
                         ),
                         child: const Text('Cancel',
                             style: TextStyle(fontSize: 13)),
@@ -155,8 +166,10 @@ class FileOperationPreview extends StatelessWidget {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: opColor,
                           foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
+                              borderRadius: BorderRadius.circular(12)),
                         ),
                         child: Text(
                           'Confirm ${manifest.operation.label}',
@@ -178,13 +191,13 @@ class FileOperationPreview extends StatelessWidget {
   Color _operationColor(FileOperation op) {
     switch (op) {
       case FileOperation.softDelete:
-        return Colors.red;
+        return AppTheme.dangerRed;
       case FileOperation.move:
-        return Colors.orange;
+        return AppTheme.warningOrange;
       case FileOperation.rename:
-        return Colors.blue;
+        return const Color(0xFF5E9BE6);
       case FileOperation.restore:
-        return Colors.green;
+        return AppTheme.brandAccent;
       case FileOperation.list:
         return AppTheme.brandAccent;
     }
@@ -217,14 +230,10 @@ class _CandidateRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: isDark
-            ? const Color(0xFF2A2A2A)
-            : Colors.white,
-        borderRadius: BorderRadius.circular(9),
+        color: isDark ? AppTheme.darkInset : Colors.white,
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: isDark
-              ? AppTheme.darkBorder
-              : const Color(0xFFE5E7EB),
+          color: isDark ? AppTheme.hairline : const Color(0xFFEEF0F2),
         ),
       ),
       child: Column(
@@ -273,22 +282,22 @@ class _RiskChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.amber.withOpacity(0.15),
+        color: AppTheme.warningOrange.withOpacity(0.12),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.amber.withOpacity(0.4)),
+        border: Border.all(color: AppTheme.warningOrange.withOpacity(0.32)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(Icons.warning_amber_rounded,
-              size: 11, color: Colors.amber),
+              size: 11, color: AppTheme.warningOrange),
           const SizedBox(width: 4),
           Text(
             risk,
             style: const TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w500,
-              color: Colors.amber,
+              color: AppTheme.warningOrange,
             ),
           ),
         ],

@@ -81,31 +81,31 @@ class GroundedStateBanner extends StatelessWidget {
         );
       case GroundedState.sourceRevoked:
         return _BannerConfig(
-          Colors.orange,
+          AppTheme.warningOrange,
           Icons.lock_outlined,
           'Source permission revoked — answer cannot be verified.',
         );
       case GroundedState.indexFailure:
         return _BannerConfig(
-          Colors.red,
+          AppTheme.dangerRed,
           Icons.storage_rounded,
           'Index unavailable — check device storage.',
         );
       case GroundedState.modelFailure:
         return _BannerConfig(
-          Colors.red,
+          AppTheme.dangerRed,
           Icons.error_outline_rounded,
           'Model response failed.',
         );
       case GroundedState.uncitedAnswer:
         return _BannerConfig(
-          Colors.amber.shade700,
+          AppTheme.warningOrange,
           Icons.warning_amber_rounded,
           'Answer references device content but cites no source.',
         );
       case GroundedState.cloudPrivacyNotice:
         return _BannerConfig(
-          Colors.blueGrey,
+          const Color(0xFF7C8B9A),
           Icons.cloud_outlined,
           'Sending to cloud model${modelName != null ? ': $modelName' : ''}.',
         );

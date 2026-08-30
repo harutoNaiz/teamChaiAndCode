@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/agent_action.dart';
@@ -333,7 +334,10 @@ class AgentService {
       final response = await _localInference.generate(
         modelPath: modelPath,
         prompt: _promptWithEvidence(contextualPrompt, evidence),
-        enableThinking: intent == AgentIntent.toolRequest,
+        // Gemma has no Qwen-style "thinking" mode; enabling it made tool
+        // turns intermittently decode to an empty response. Keep it off so the
+        // model emits its JSON envelope directly.
+        enableThinking: false,
       );
       debugPrint('AGENT_MODEL_DONE model=${model.id} chars=${response.length}');
       final plannedAction =
@@ -534,11 +538,19 @@ class AgentService {
           'The selected model backend is unavailable. I did not generate a simulated device result.',
       timestamp: DateTime.now());
 
+  /// Tools whose native contract needs the authorised SAF document URI, which
+  /// the planner never sees — it only knows a file *name*. We resolve that name
+  /// against the same index the search path uses.
+  static const _fileTargetTools = {'rename_file', 'move_file', 'soft_delete_file'};
+
   Future<bool> executeAction(AgentAction action) async {
     debugPrint(
         'AGENT_TOOL_START type=${action.type} parameters=${action.parameters}');
     action.status = ActionStatus.executing;
     try {
+      if (_fileTargetTools.contains(action.type)) {
+        await _resolveFileArguments(action);
+      }
       final outcome =
           await _deviceTools.execute(action.type, action.parameters);
       action.result = outcome;
@@ -547,9 +559,78 @@ class AgentService {
       return true;
     } catch (error) {
       action.status = ActionStatus.failed;
-      action.errorMessage = error.toString();
+      // A resolution/execution failure must reach the card as a plain sentence,
+      // not a "Bad state:"/"PlatformException(...)" dump.
+      action.errorMessage = _userFacingError(error);
       debugPrint('AGENT_TOOL_ERROR type=${action.type} error=$error');
       return false;
     }
+  }
+
+  /// Reduces an execution/resolution failure to text safe to show the user,
+  /// stripping framework prefixes so a missing-file or provider error reads as
+  /// a sentence rather than a raw exception.
+  String _userFacingError(Object error) {
+    if (error is StateError) return error.message;
+    if (error is PlatformException) return error.message ?? error.code;
+    if (error is ArgumentError) {
+      return error.message?.toString() ?? error.toString();
+    }
+    return error.toString();
+  }
+
+  /// Maps the planner's human file reference (a name in source_id/file_name)
+  /// to the indexed SAF document URI the OS rename/move/delete APIs require.
+  /// Reuses the retrieval index, so anything searchable is also operable.
+  Future<void> _resolveFileArguments(AgentAction action) async {
+    final params = action.parameters;
+    final existing = params['source_uri']?.toString();
+    if (existing != null && existing.isNotEmpty) return;
+    final ref = (params['source_id'] ??
+            params['file_name'] ??
+            params['filename'] ??
+            params['name'] ??
+            params['source'])
+        ?.toString()
+        .trim();
+    if (ref == null || ref.isEmpty) {
+      throw StateError(
+          'No file name was provided to ${action.type.replaceAll('_', ' ')}.');
+    }
+    // Restrict to real file extractions — chat-memory documents share the
+    // index but have a chat:// URI the OS file APIs cannot act on.
+    final matches = await _retrievalTool.search(RetrievalRequest(
+      query: ref,
+      limit: 5,
+      contentTypes: const {'text', 'pdf_text', 'pdf_ocr', 'image_ocr'},
+    ));
+    if (matches.isEmpty) {
+      throw StateError(
+          'No indexed file matches "$ref", so nothing was changed.');
+    }
+    final target = _bestFileMatch(matches, ref);
+    params['source_uri'] = target.sourceUri;
+    debugPrint('AGENT_TOOL_RESOLVE ref="$ref" -> '
+        '${target.displayName} uri=${target.sourceUri}');
+  }
+
+  /// Prefer an exact (extension-insensitive) name hit over the top-ranked one,
+  /// so "rename Groceries" targets Groceries.md and not a fuzzy neighbour.
+  RetrievedEvidence _bestFileMatch(
+      List<RetrievedEvidence> matches, String ref) {
+    String norm(String s) => s
+        .toLowerCase()
+        .replaceAll(RegExp(r'\.[a-z0-9]+$'), '')
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .trim();
+    final needle = norm(ref);
+    for (final m in matches) {
+      if (norm(m.displayName) == needle) return m;
+    }
+    for (final m in matches) {
+      final hay = norm(m.displayName);
+      if (hay.contains(needle) || needle.contains(hay)) return m;
+    }
+    return matches.first;
   }
 }

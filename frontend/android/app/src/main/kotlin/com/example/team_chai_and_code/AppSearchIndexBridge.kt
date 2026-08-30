@@ -209,6 +209,91 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
         Log.i(LOG_TAG, "rehydrated ${documents.size} document(s) from durable catalog")
     }
 
+    /**
+     * Reconciles file-backed entries against ground truth after a *complete*
+     * corpus walk. A source whose URI sits under one of the freshly and fully
+     * scanned trees but was NOT seen in the walk has been deleted, renamed, or
+     * moved (SAF encodes the path in the document id, so a rename/move changes
+     * the URI). Its catalog + AppSearch + id-mapping entries are purged so
+     * search never returns a dead URI or a stale display name.
+     *
+     * Left untouched on purpose: chat_memory (its `chat://` URI is under no
+     * tree), and any source outside the scanned trees -- an unscanned or
+     * partially-enumerated tree is never read as "its files were deleted".
+     * [scannedTreeUris] must contain only trees the caller enumerated end to
+     * end. Returns the purged source URIs so the caller can drop its bookkeeping.
+     */
+    fun reconcileScannedTrees(
+        scannedTreeUris: List<String>,
+        liveSourceUris: Set<String>,
+    ): List<String> {
+        if (scannedTreeUris.isEmpty()) return emptyList()
+        // buildDocumentUriUsingTree(tree, id) yields "<treeUri>/document/<id>".
+        val coveragePrefixes = scannedTreeUris.map { "$it/document/" }
+        val rows = catalog.exportRows()
+        val staleExtractionIds = mutableListOf<String>()
+        val staleSourceIds = mutableListOf<String>()
+        val staleSourceUris = mutableListOf<String>()
+        val seenSourceIds = mutableSetOf<String>()
+        for (i in 0 until rows.length()) {
+            val extraction = rows.getJSONObject(i)
+            // Chat memory is not file-backed; never reconcile it against a tree.
+            if (extraction.optString("kind") == "CHAT_MEMORY") continue
+            val extractionId = extraction.optString("extractionId")
+            val sourceId = extraction.optString("sourceId")
+            if (extractionId.isBlank() || sourceId.isBlank()) continue
+            val source = catalog.sourceJson(sourceId) ?: continue
+            val sourceUri = source.optString("sourceUri")
+            if (sourceUri.isBlank()) continue
+            if (coveragePrefixes.none { sourceUri.startsWith(it) }) continue
+            if (sourceUri in liveSourceUris) continue
+            staleExtractionIds.add(extractionId)
+            if (seenSourceIds.add(sourceId)) {
+                staleSourceIds.add(sourceId)
+                staleSourceUris.add(sourceUri)
+            }
+        }
+        if (staleExtractionIds.isEmpty()) return emptyList()
+
+        // 1) Drop the searchable copies.
+        try {
+            appSearch().removeAsync(
+                RemoveByDocumentIdRequest.Builder(NAMESPACE)
+                    .addIds(staleExtractionIds).build()
+            ).get()
+        } catch (error: Exception) {
+            Log.w(LOG_TAG, "reconcile: AppSearch remove failed", error)
+        }
+
+        // 2) Drop the durable catalog rows so self-heal cannot resurrect them.
+        //    The catalog owns this key scheme (SharedPreferencesCatalogWriter);
+        //    we prune the same source/extraction/unit keys for a purged source.
+        val catalogPrefs =
+            appContext.getSharedPreferences("local_catalog_v1", Context.MODE_PRIVATE)
+        val catalogKeys = catalogPrefs.all.keys.toList()
+        val catalogEditor = catalogPrefs.edit()
+        staleExtractionIds.forEach { catalogEditor.remove("extraction:$it") }
+        staleSourceIds.forEach { sourceId ->
+            catalogEditor.remove("source:$sourceId")
+            catalogKeys.filter { it.startsWith("unit:$sourceId:") }
+                .forEach { catalogEditor.remove(it) }
+        }
+        catalogEditor.apply()
+
+        // 3) Drop the source<->id mappings so a recreated same-named file
+        //    re-indexes cleanly instead of colliding with a dead id.
+        val indexEditor = preferences.edit()
+        staleExtractionIds.forEach { id ->
+            val sourceKey = preferences.getString("id:$id", null)
+            indexEditor.remove("id:$id")
+            if (sourceKey != null) indexEditor.remove(sourceKey)
+        }
+        indexEditor.apply()
+
+        Log.i(LOG_TAG, "reconcile purged sources=${staleSourceIds.size} extractions=${staleExtractionIds.size}")
+        return staleSourceUris
+    }
+
     private fun upsert(record: IndexRecord): Map<String, Any?> {
         val catalogResult = catalog.upsert(
             SourceRecord(

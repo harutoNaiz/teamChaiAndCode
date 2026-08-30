@@ -43,14 +43,14 @@ class AgentToolCatalog {
         {'title': 'string', 'at': 'ISO-8601 datetime'}),
     AgentToolDefinition(
         'create_note',
-        'Save a note as a local Markdown document after confirmation',
+        "Save a note to the phone's notes app (Keep/Samsung Notes/etc.) after confirmation",
         ActionPermissionLevel.medium,
         {'title': 'string', 'content': 'string'}),
     AgentToolDefinition(
         'move_file',
-        'Move an authorised file to a selected destination',
+        'Move an authorised file into a destination folder, created if absent',
         ActionPermissionLevel.medium,
-        {'source_id': 'string', 'destination': 'string'}),
+        {'source_id': 'file name', 'destination': 'folder name'}),
     AgentToolDefinition(
         'rename_file',
         'Rename an authorised file',

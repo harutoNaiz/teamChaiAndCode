@@ -194,17 +194,47 @@ class LocalScannerBridge(
         return true
     }
 
-    fun scanPersistedSources(): List<Map<String, Any?>> =
-        appContext.contentResolver.persistedUriPermissions
+    fun scanPersistedSources(): List<Map<String, Any?>> {
+        val readPermissions = appContext.contentResolver.persistedUriPermissions
             .filter { it.isReadPermission }
-            .flatMap { permission -> scanAndIndexUri(permission.uri) }
+        val results = mutableListOf<Map<String, Any?>>()
+        // Ground truth for reconciliation: every file URI actually present in a
+        // tree we fully enumerated this pass. Only fully-walked trees are
+        // reconcilable -- a failed listing must never read as "files deleted".
+        val liveUris = mutableSetOf<String>()
+        val reconcilableTrees = mutableListOf<String>()
+        for (permission in readPermissions) {
+            val uri = permission.uri
+            if (DocumentsContract.isTreeUri(uri)) {
+                val complete = scanTree(
+                    uri, DocumentsContract.getTreeDocumentId(uri), results, liveUris)
+                if (complete) reconcilableTrees.add(uri.toString())
+            } else {
+                liveUris.add(uri.toString())
+                results.addAll(scanAndIndexUri(uri))
+            }
+        }
+        // Purge catalog + AppSearch entries for files that vanished from a fully
+        // scanned tree (deleted / renamed / moved), then forget their scan
+        // markers so a same-named recreation re-indexes cleanly.
+        if (reconcilableTrees.isNotEmpty()) {
+            val purged = indexBridge.reconcileScannedTrees(reconcilableTrees, liveUris)
+            if (purged.isNotEmpty()) {
+                val editor = seenPrefs.edit()
+                purged.forEach { editor.remove(it) }
+                editor.apply()
+                Log.i(LOG_TAG, "reconcile purged ${purged.size} stale source(s)")
+            }
+        }
+        return results
+    }
 
     fun scanAndIndexUri(uri: Uri): List<Map<String, Any?>> {
         val results = mutableListOf<Map<String, Any?>>()
         val contentResolver = appContext.contentResolver
 
         if (DocumentsContract.isTreeUri(uri)) {
-            scanTree(uri, DocumentsContract.getTreeDocumentId(uri), results)
+            scanTree(uri, DocumentsContract.getTreeDocumentId(uri), results, null)
         } else {
             // Single document
             var displayName = "document"
@@ -232,7 +262,8 @@ class LocalScannerBridge(
         treeUri: Uri,
         parentDocumentId: String,
         results: MutableList<Map<String, Any?>>,
-    ) {
+        liveUris: MutableSet<String>?,
+    ): Boolean {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
         val projection = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -240,20 +271,34 @@ class LocalScannerBridge(
             DocumentsContract.Document.COLUMN_MIME_TYPE,
             DocumentsContract.Document.COLUMN_LAST_MODIFIED,
         )
-        appContext.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
-            while (cursor.moveToNext()) {
-                val documentId = cursor.getString(0)
-                val displayName = cursor.getString(1) ?: "unnamed_document"
-                val mimeType = cursor.getString(2) ?: "application/octet-stream"
-                val modifiedAt = cursor.getLong(3)
+        // A null cursor / query error is a listing failure, NOT an empty folder.
+        // Report it as incomplete so a transient provider hiccup can never make
+        // reconciliation purge still-present files.
+        val cursor = try {
+            appContext.contentResolver.query(childrenUri, projection, null, null, null)
+        } catch (error: Exception) {
+            Log.w(LOG_TAG, "Child listing failed doc=$parentDocumentId", error)
+            return false
+        } ?: return false
+        var complete = true
+        cursor.use { rows ->
+            while (rows.moveToNext()) {
+                val documentId = rows.getString(0)
+                val displayName = rows.getString(1) ?: "unnamed_document"
+                val mimeType = rows.getString(2) ?: "application/octet-stream"
+                val modifiedAt = rows.getLong(3)
                 if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
-                    scanTree(treeUri, documentId, results)
+                    if (!scanTree(treeUri, documentId, results, liveUris)) complete = false
                 } else {
                     val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+                    // Record presence before extraction so files skipped as
+                    // unchanged (or unsupported) still count as live.
+                    liveUris?.add(documentUri.toString())
                     results.addAll(processDocument(documentUri, displayName, mimeType, modifiedAt))
                 }
             }
         }
+        return complete
     }
 
     private fun processDocument(

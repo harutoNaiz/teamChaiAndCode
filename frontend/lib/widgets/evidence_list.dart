@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/retrieved_evidence.dart';
+import '../theme/app_theme.dart';
 import 'evidence_card.dart';
 
 /// V2+V5: Horizontal scrollable list of EvidenceCards.
@@ -23,13 +24,14 @@ class EvidenceList extends StatelessWidget {
       children: [
         const SizedBox(height: 8),
         Text(
-          'Sources',
+          'SOURCES',
           style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w600,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.0,
             color: Theme.of(context).brightness == Brightness.dark
-                ? Colors.grey
-                : Colors.black54,
+                ? AppTheme.darkTextTertiary
+                : Colors.black45,
           ),
         ),
         const SizedBox(height: 6),

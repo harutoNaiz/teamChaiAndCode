@@ -1,21 +1,30 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // ChatGPT Dark Color Palette
-  static const Color darkBg = Color(0xFF212121);
-  static const Color darkSurface = Color(0xFF171717);
-  static const Color darkCard = Color(0xFF2F2F2F);
-  static const Color darkInputBg = Color(0xFF2F2F2F);
-  static const Color darkBorder = Color(0xFF383838);
-  static const Color darkTextPrimary = Color(0xFFECECEC);
-  static const Color darkTextSecondary = Color(0xFFB4B4B4);
-  static const Color brandAccent =
-      Color(0xFF10A37F); // OpenAI/Gemini sleek green/teal
-  static const Color brandSecondary = Color(0xFF19C37D);
-  static const Color warningOrange = Color(0xFFF59E0B);
-  static const Color dangerRed = Color(0xFFEF4444);
-  static const Color userBubbleDark = Color(0xFF2F2F2F);
+  // Apple-grade dark palette. True-black OLED base, layered system grays and a
+  // single system-blue accent. Token NAMES are unchanged so the whole app
+  // recolours from these values alone.
+  static const Color darkBg = Color(0xFF000000); // systemBackground (base)
+  static const Color darkSurface = Color(0xFF1C1C1E); // drawer / raised sheet
+  static const Color darkCard = Color(0xFF1C1C1E); // secondarySystemBackground
+  static const Color darkInputBg = Color(0xFF1C1C1E);
+  static const Color darkBorder = Color(0xFF38383A); // opaque separator
+  static const Color darkTextPrimary = Color(0xFFFFFFFF); // label
+  static const Color darkTextSecondary = Color(0xFF98989F); // secondaryLabel
+  static const Color brandAccent = Color(0xFF0A84FF); // systemBlue (dark)
+  static const Color brandSecondary = Color(0xFF409CFF);
+  static const Color warningOrange = Color(0xFFFF9F0A); // systemOrange (dark)
+  static const Color dangerRed = Color(0xFFFF453A); // systemRed (dark)
+  static const Color userBubbleDark = Color(0xFF2C2C2E); // tertiarySystemBackground
   static const Color assistantBubbleDark = Colors.transparent;
+
+  // Layered elevation + accent tints (same names as before).
+  static const Color darkElevated = Color(0xFF1C1C1E); // grouped cell surface
+  static const Color darkInset = Color(0xFF2C2C2E); // nested control in a cell
+  static const Color darkTextTertiary = Color(0xFF636366); // tertiaryLabel
+  static const Color hairline = Color(0xFF2C2C2E); // hairline separator on black
+  static const Color accentSubtle = Color(0x1F0A84FF); // systemBlue ~12% fill
+  static const Color accentRing = Color(0x660A84FF); // systemBlue ~40% border
 
   static ThemeData get darkTheme {
     return ThemeData(

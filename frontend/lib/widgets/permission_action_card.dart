@@ -84,14 +84,21 @@ class _PermissionActionCardState extends State<PermissionActionCard> {
     return Container(
       margin: const EdgeInsets.only(top: 10, bottom: 4),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF262626) : const Color(0xFFF3F4F6),
-        borderRadius: BorderRadius.circular(14),
+        color: isDark ? AppTheme.darkElevated : const Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: action.requiresConfirmation
-              ? riskColor.withOpacity(0.5)
-              : (isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB)),
+              ? riskColor.withOpacity(0.38)
+              : (isDark ? AppTheme.hairline : const Color(0xFFE5E7EB)),
           width: 1,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.20 : 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -150,10 +157,14 @@ class _PermissionActionCardState extends State<PermissionActionCard> {
           if (action.parameters.isNotEmpty && action.requiresConfirmation) ...[
             const SizedBox(height: 8),
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                borderRadius: BorderRadius.circular(8),
+                color: isDark ? AppTheme.darkInset : Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: isDark
+                        ? AppTheme.hairline
+                        : const Color(0xFFEEF0F2)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -192,9 +203,9 @@ class _PermissionActionCardState extends State<PermissionActionCard> {
                             ? AppTheme.darkBorder
                             : const Color(0xFFD1D5DB)),
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
+                        borderRadius: BorderRadius.circular(10)),
                     minimumSize: Size.zero,
                   ),
                   child:
@@ -206,10 +217,11 @@ class _PermissionActionCardState extends State<PermissionActionCard> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.brandAccent,
                     foregroundColor: Colors.white,
+                    elevation: 0,
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
+                        borderRadius: BorderRadius.circular(10)),
                     minimumSize: Size.zero,
                   ),
                   icon: _isLoading

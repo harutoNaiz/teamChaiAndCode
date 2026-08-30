@@ -30,16 +30,16 @@ class _EvidenceCardState extends State<EvidenceCard> {
       width: 240,
       margin: const EdgeInsets.only(right: 10),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF232323) : Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        color: isDark ? AppTheme.darkElevated : Colors.white,
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isDark ? AppTheme.darkBorder : const Color(0xFFE5E7EB),
+          color: isDark ? AppTheme.hairline : const Color(0xFFE5E7EB),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
+            color: Colors.black.withOpacity(isDark ? 0.20 : 0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
@@ -101,10 +101,10 @@ class _EvidenceCardState extends State<EvidenceCard> {
             // Citation ID
             Text(
               ev.identifier,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 10,
-                color: Colors.grey,
+                color: isDark ? AppTheme.darkTextTertiary : Colors.black38,
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -116,16 +116,20 @@ class _EvidenceCardState extends State<EvidenceCard> {
                   ? () => widget.onOpen?.call(ev.openUri)
                   : null,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: isAvailable
-                      ? Colors.green.withOpacity(0.12)
-                      : Colors.red.withOpacity(0.10),
-                  borderRadius: BorderRadius.circular(6),
+                      ? AppTheme.accentSubtle
+                      : (isDark
+                          ? AppTheme.darkInset
+                          : const Color(0xFFF1F3F5)),
+                  borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: isAvailable
-                        ? Colors.green.withOpacity(0.4)
-                        : Colors.red.withOpacity(0.4),
+                        ? AppTheme.accentRing
+                        : (isDark
+                            ? AppTheme.hairline
+                            : const Color(0xFFE5E7EB)),
                   ),
                 ),
                 child: Row(
@@ -133,17 +137,25 @@ class _EvidenceCardState extends State<EvidenceCard> {
                   children: [
                     Icon(
                       isAvailable ? Icons.open_in_new_rounded : Icons.block_rounded,
-                      size: 11,
-                      color: isAvailable ? Colors.green : Colors.red,
+                      size: 12,
+                      color: isAvailable
+                          ? AppTheme.brandAccent
+                          : (isDark
+                              ? AppTheme.darkTextTertiary
+                              : Colors.black45),
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 5),
                     Flexible(
                       child: Text(
                         isAvailable ? 'Open Source' : 'Source Unavailable',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: isAvailable ? Colors.green : Colors.red,
+                          color: isAvailable
+                              ? AppTheme.brandAccent
+                              : (isDark
+                                  ? AppTheme.darkTextTertiary
+                                  : Colors.black45),
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
