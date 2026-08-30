@@ -237,13 +237,18 @@ class AgentService {
           evidence =
               await _retrievalTool.search(RetrievalRequest(query: prompt));
         }
+        debugPrint('AGENT_EVIDENCE_RAW count=${evidence.length} '
+            '${evidence.map((e) => '${e.contentType}/${e.displayName}=${e.score?.toStringAsFixed(3)}').join(' | ')}');
         // For an implied question, keep only sufficiently-relevant matches so a
         // stray semantic hit cannot ground an unrelated answer. Explicit file
         // requests keep every match — the user asked to search.
         if (impliedQuery) {
+          final before = evidence.length;
           evidence = evidence
               .where((item) => (item.score ?? 0) >= _kImpliedRelevanceFloor)
               .toList();
+          debugPrint('AGENT_EVIDENCE_FLOOR floor=$_kImpliedRelevanceFloor '
+              'kept=${evidence.length}/$before');
         }
       } on RetrievalException catch (error) {
         return _retrievalFailureMessage(error);

@@ -1,0 +1,6 @@
+Home network details
+
+WiFi SSID: TusharHome_5G
+Password: chai@home2026
+Router admin: 192.168.1.1
+ISP: ACT Fibernet 300 Mbps

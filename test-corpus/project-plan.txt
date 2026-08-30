@@ -1,0 +1,6 @@
+teamChai roadmap Q4 2026
+
+Milestone 1: On-device indexing hardened - due 30 September 2026
+Milestone 2: Semantic search accuracy > 90 percent - due 15 October 2026
+Milestone 3: File operations (create, move, organize) shipped - due 31 October 2026
+Milestone 4: LiteRT NPU acceleration - due 20 November 2026

@@ -25,7 +25,10 @@ import com.example.team_chai_and_code.catalog.SourceRecord
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
+import android.util.Log
 import java.io.File
+import org.json.JSONArray
+import org.json.JSONObject
 
 @OptIn(ExperimentalAppSearchApi::class)
 class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
@@ -116,7 +119,94 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
         created.setSchemaAsync(SetSchemaRequest.Builder().addSchemas(schema()).build()).get()
         recoveryPreferences.edit().putBoolean("recreated_v2", true).apply()
         session = created
+        try {
+            val catalogRows = catalog.exportRows().length()
+            val indexed = if (catalogRows > 0) countIndexedDocuments(created, catalogRows) else 0
+            Log.i(LOG_TAG, "index reconcile: appsearch=$indexed catalog=$catalogRows")
+            if (catalogRows > 0 && indexed < catalogRows) {
+                rehydrateFromCatalog(created)
+            }
+        } catch (_: Exception) {
+            // Self-heal is best-effort; search still serves whatever is present.
+        }
         return created
+    }
+
+    /** Counts indexed documents, stopping once [cap] is reached (match-all). */
+    private fun countIndexedDocuments(store: AppSearchSession, cap: Int): Int {
+        val spec = SearchSpec.Builder()
+            .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
+            .setResultCountPerPage(20)
+            .build()
+        val results = store.search("", spec)
+        var count = 0
+        while (count < cap) {
+            val page = results.nextPageAsync.get()
+            if (page.isEmpty()) break
+            count += page.size
+        }
+        return count
+    }
+
+    /**
+     * Rebuilds AppSearch documents from the durable catalog. The extracted text
+     * already lives in the catalog, so no file is re-read and no OCR re-runs;
+     * only the embedding is recomputed. Puts are idempotent (same document id),
+     * so this both fills an empty index and repairs a partial one.
+     */
+    private fun rehydrateFromCatalog(store: AppSearchSession) {
+        val rows = catalog.exportRows()
+        if (rows.length() == 0) return
+        val documents = mutableListOf<GenericDocument>()
+        val editor = preferences.edit()
+        for (i in 0 until rows.length()) {
+            val extraction = rows.getJSONObject(i)
+            val text = extraction.optString("text")
+            if (text.isBlank()) continue
+            val extractionId = extraction.optString("extractionId")
+            if (extractionId.isBlank()) continue
+            val source = catalog.sourceJson(extraction.optString("sourceId")) ?: continue
+            val sourceUri = source.optString("sourceUri")
+            val displayName = source.optString("displayName")
+            val mimeType = source.optString("mimeType")
+            if (sourceUri.isBlank() || displayName.isBlank() || mimeType.isBlank()) continue
+            val contentType = when (extraction.optString("kind")) {
+                "PDF_TEXT" -> "pdf_text"
+                "PDF_OCR" -> "pdf_ocr"
+                "IMAGE_OCR" -> "image_ocr"
+                "CHAT_MEMORY" -> "chat_memory"
+                else -> "text"
+            }
+            val page = if (extraction.isNull("page")) null else extraction.optInt("page")
+            val confidence =
+                if (extraction.isNull("confidence")) null else extraction.optDouble("confidence")
+            val modifiedAt = source.optLong("modifiedAtMillis", 0L)
+            val builder =
+                GenericDocument.Builder<GenericDocument.Builder<*>>(NAMESPACE, extractionId, SCHEMA_TYPE)
+            builder.setPropertyString("sourceUri", sourceUri)
+            builder.setPropertyString("displayName", displayName)
+            builder.setPropertyString("mimeType", mimeType)
+            builder.setPropertyString("contentType", contentType)
+            builder.setPropertyString("transcription", text)
+            builder.setPropertyEmbedding(
+                "embedding",
+                EmbeddingVector(embedder.embed(text), EMBEDDING_MODEL_SIGNATURE)
+            )
+            page?.let { builder.setPropertyLong("page", it.toLong()) }
+            confidence?.let { builder.setPropertyDouble("ocrConfidence", it) }
+            if (modifiedAt > 0L) builder.setPropertyLong("modifiedAt", modifiedAt)
+            documents.add(builder.build())
+            // Restore the source<->id mapping so a later re-index of the same
+            // source still replaces (rather than duplicates) this unit.
+            val sourceKey = "$sourceUri|${page ?: 0}"
+            editor.putString(sourceKey, extractionId).putString("id:$extractionId", sourceKey)
+        }
+        if (documents.isEmpty()) return
+        store.putAsync(
+            PutDocumentsRequest.Builder().addGenericDocuments(documents).build()
+        ).get()
+        editor.apply()
+        Log.i(LOG_TAG, "rehydrated ${documents.size} document(s) from durable catalog")
     }
 
     private fun upsert(record: IndexRecord): Map<String, Any?> {
@@ -204,6 +294,7 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
         val lexicalQuery = safeLexicalQuery(query)
         val lexicalSpec = SearchSpec.Builder()
             .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
+            .setRankingStrategy(SearchSpec.RANKING_STRATEGY_RELEVANCE_SCORE)
             .setSnippetCount(1)
             .setSnippetCountPerProperty(1)
             .build()
@@ -218,12 +309,18 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
                 emptyList()
             }
         }
+        Log.i(LOG_TAG, "search q='${query}' lex='${lexicalQuery}' lexHits=${lexical.size} filters=${request.contentTypes}")
         if (lexical.isNotEmpty()) return lexical
         if (!query.contains(Regex("\\s"))) return lexical
         val queryEmbedding = EmbeddingVector(embedder.embed(query), EMBEDDING_MODEL_SIGNATURE)
+        // Rank by cosine similarity. Without an advanced ranking expression the
+        // ranking signal is 0 for every hit and results come back in arbitrary
+        // order, so the closest document is never surfaced. matchedSemanticScores
+        // yields this document's score against the query embedding.
         val spec = SearchSpec.Builder()
             .addEmbeddingParameters(queryEmbedding)
             .setListFilterQueryLanguageEnabled(true)
+            .setRankingStrategy("sum(this.matchedSemanticScores(getEmbeddingParameter(0)))")
             .setSnippetCount(1)
             .setSnippetCountPerProperty(1)
             .build()
@@ -231,15 +328,26 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
             "semanticSearch(getEmbeddingParameter(0), -1.0, 1.0, \"COSINE\")",
             spec
         )
-        return collectResults(searchResults, request)
+        val out = collectResults(searchResults, request)
+        Log.i(LOG_TAG, "search semantic hits=${out.size} top=" +
+            out.take(5).joinToString(",") { "${it["content_type"]}:${it["display_name"]}=${(it["score"] as? Number)?.let { s -> "%.3f".format(s.toDouble()) }}" })
+        return out
     }
 
     /** Converts untrusted natural-language input into literal searchable terms. */
+    /**
+     * Turns a natural-language prompt into a keyword query. Function words are
+     * dropped and the remaining content terms are OR-joined so a document that
+     * carries any of them is a candidate, then BM25 ranks by overlap. Without
+     * this a question like "when is the budget meeting" ANDs every token and
+     * matches nothing, forcing a fall back to the weak semantic signal.
+     */
     private fun safeLexicalQuery(query: String): String =
         Regex("[\\p{L}\\p{N}]+")
             .findAll(query)
             .map { it.value }
-            .joinToString(" ")
+            .filter { it.length > 1 && it.lowercase() !in STOPWORDS }
+            .joinToString(" OR ")
 
     private fun collectResults(
         searchResults: androidx.appsearch.app.SearchResults,
@@ -432,6 +540,17 @@ class AppSearchIndexBridge(context: Context) : MethodChannel.MethodCallHandler {
     )
 
     private companion object {
+        const val LOG_TAG = "TeamChaiIndex"
+        val STOPWORDS = setOf(
+            "a", "an", "the", "is", "are", "was", "were", "be", "been", "am",
+            "of", "to", "in", "on", "for", "at", "by", "and", "or", "as", "it",
+            "its", "my", "our", "your", "this", "that", "these", "those",
+            "do", "does", "did", "will", "would", "can", "could", "should",
+            "when", "what", "where", "which", "who", "whom", "whose", "how",
+            "why", "much", "many", "me", "i", "you", "we", "please", "show",
+            "tell", "find", "get", "give", "about", "with", "from", "any",
+            "some", "there", "here", "have", "has", "had", "was"
+        )
         const val DATABASE_NAME = "team_chai_local_index"
         const val NAMESPACE = "phone_content"
         const val SCHEMA_TYPE = "IndexedContent"
