@@ -338,11 +338,16 @@ class AgentService {
       debugPrint('AGENT_MODEL_DONE model=${model.id} chars=${response.length}');
       final plannedAction =
           intent == AgentIntent.toolRequest ? _parseToolAction(response) : null;
+      // A tool turn returns a JSON envelope; surface the model's user_message,
+      // never the raw JSON. Non-tool turns keep the sanitized answer text.
+      final content = plannedAction != null
+          ? plannedAction.description
+          : _ensureEvidenceCitations(
+              _sanitizeModelResponse(response), evidence);
       final message = ChatMessage(
         id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
         role: MessageRole.assistant,
-        content: _ensureEvidenceCitations(
-            _sanitizeModelResponse(response), evidence),
+        content: content,
         timestamp: DateTime.now(),
         thoughtProcess: 'Model: ${model.name} (LiteRT-LM on device)',
         citationIds: evidence.map((item) => item.identifier).toList(),
@@ -420,7 +425,7 @@ class AgentService {
     final normalized = prompt.trim();
     if (normalized.isEmpty) return AgentIntent.generalChat;
     final isToolRequest = RegExp(
-            r'\b(create|set|add|remind|reminder|move|rename|delete|remove|organize|sort|restore|save|update|upsert)\b',
+            r'\b(create|make|jot|schedule|set|add|remind|reminder|move|rename|delete|remove|organize|sort|restore|save|update|upsert)\b',
             caseSensitive: false)
         .hasMatch(normalized);
     if (isToolRequest) return AgentIntent.toolRequest;

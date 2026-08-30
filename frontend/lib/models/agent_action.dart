@@ -36,8 +36,11 @@ class AgentAction {
     this.errorMessage,
   });
 
+  // Anything above "safe" needs explicit approval before it runs. Previously
+  // only "sensitive" did, so medium tools (create note, move/rename) rendered
+  // no approve button and were never executed — they stalled at "Processing".
   bool get requiresConfirmation =>
-      permissionLevel == ActionPermissionLevel.sensitive &&
+      permissionLevel != ActionPermissionLevel.safe &&
       status == ActionStatus.pendingApproval;
 
   Map<String, dynamic> toJson() => {
