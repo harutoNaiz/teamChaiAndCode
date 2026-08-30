@@ -58,7 +58,7 @@ class AgentToolCatalog {
         {'source_id': 'string', 'new_name': 'string'}),
     AgentToolDefinition(
         'soft_delete_file',
-        'Move an authorised file to trash with undo support',
+        'Delete an authorised file after confirmation',
         ActionPermissionLevel.sensitive,
         {'source_id': 'string'}),
     AgentToolDefinition(

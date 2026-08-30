@@ -25,6 +25,7 @@ class DeviceToolsBridge(private val context: Context) : MethodChannel.MethodCall
                 "create_note" -> createNote(parameters, result)
                 "rename_file" -> renameFile(parameters, result)
                 "move_file" -> moveFile(parameters, result)
+                "soft_delete_file" -> deleteFile(parameters, result)
                 "search_files", "list_files" -> result.success(mapOf("status" to "handled_by_index"))
                 else -> result.error("UNSUPPORTED_TOOL", "No native capability for $type", null)
             }
@@ -87,6 +88,16 @@ class DeviceToolsBridge(private val context: Context) : MethodChannel.MethodCall
         val renamed = DocumentsContract.renameDocument(context.contentResolver, uri, newName)
             ?: error("The provider rejected the rename")
         result.success(mapOf("status" to "completed", "uri" to renamed.toString()))
+    }
+
+    private fun deleteFile(parameters: Map<String, Any?>, result: MethodChannel.Result) {
+        // The Dart layer resolves the planner's filename to an authorised SAF
+        // document URI. Deleting it removes the file from the granted tree; the
+        // next index scan reconciles it out of AppSearch + the catalog.
+        val uri = Uri.parse(parameters["source_uri"]?.toString() ?: error("source_uri is required"))
+        val deleted = DocumentsContract.deleteDocument(context.contentResolver, uri)
+        if (!deleted) error("The provider rejected the delete")
+        result.success(mapOf("status" to "completed", "uri" to uri.toString()))
     }
 
     private fun moveFile(parameters: Map<String, Any?>, result: MethodChannel.Result) {
