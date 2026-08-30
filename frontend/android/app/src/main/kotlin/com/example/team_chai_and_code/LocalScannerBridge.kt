@@ -152,7 +152,7 @@ class LocalScannerBridge(
             // Persist exactly the access flags supplied by DocumentsUI. Using
             // a hard-coded flag and swallowing a failure made a selected tree
             // appear to work once, then disappear on the next refresh/start.
-            val takeFlags = data.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+            val takeFlags = data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             require(takeFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) {
                 "Folder picker did not grant read access"
             }

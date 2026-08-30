@@ -1,9 +1,12 @@
 package com.example.team_chai_and_code
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.provider.CalendarContract
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.net.Uri
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -50,12 +53,64 @@ class DeviceToolsBridge(private val context: Context) : MethodChannel.MethodCall
         val content = parameters["content"]?.toString()?.trim().orEmpty()
         require(title.isNotEmpty()) { "Note title is required" }
         require(content.isNotEmpty()) { "Note content is required" }
+        val filename = if (title.endsWith(".md")) title else "$title.md"
+        val resolver = context.contentResolver
+
+        // 1) Preferred: create the note inside a folder the user already granted
+        //    AND that the scanner walks, so the file is written with its content
+        //    (ACTION_CREATE_DOCUMENT alone only makes an empty file — it never
+        //    persists EXTRA_TEXT) and is immediately indexable, with no second
+        //    picker. Needs a write-persisted tree grant.
+        val writableTree = resolver.persistedUriPermissions
+            .firstOrNull { it.isWritePermission && DocumentsContract.isTreeUri(it.uri) }
+            ?.uri
+        if (writableTree != null) {
+            val parentDoc = DocumentsContract.buildDocumentUriUsingTree(
+                writableTree, DocumentsContract.getTreeDocumentId(writableTree))
+            val docUri = DocumentsContract.createDocument(
+                resolver, parentDoc, "text/markdown", filename)
+                ?: error("The folder provider rejected note creation")
+            resolver.openOutputStream(docUri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
+                ?: error("Could not open the new note for writing")
+            result.success(mapOf("status" to "completed", "uri" to docUri.toString(),
+                "display_name" to filename))
+            return
+        }
+
+        // 2) No writable tree yet, but a read tree exists (scanner is set up).
+        //    Write the note into that same physical folder via MediaStore so it
+        //    still lands where the scanner looks, without needing a picker. The
+        //    read tree's document id encodes the relative path, e.g.
+        //    "primary:Download/teamchai-test".
+        val readTree = resolver.persistedUriPermissions
+            .firstOrNull { it.isReadPermission && DocumentsContract.isTreeUri(it.uri) }
+            ?.uri
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && readTree != null) {
+            val relPath = DocumentsContract.getTreeDocumentId(readTree)
+                .substringAfter(':').trim('/')
+            if (relPath.startsWith("Download", ignoreCase = true)) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, filename)
+                    put(MediaStore.Downloads.MIME_TYPE, "text/markdown")
+                    put(MediaStore.Downloads.RELATIVE_PATH, relPath)
+                }
+                val docUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    ?: error("Could not create the note in $relPath")
+                resolver.openOutputStream(docUri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
+                    ?: error("Could not open the new note for writing")
+                result.success(mapOf("status" to "completed", "uri" to docUri.toString(),
+                    "display_name" to filename))
+                return
+            }
+        }
+
+        // 3) Nothing granted yet: fall back to the system create-document picker.
+        //    A fire-and-forget intent cannot write content, so this only creates
+        //    the file; the user is nudged to grant a folder for the seamless path.
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "text/markdown"
-            putExtra(Intent.EXTRA_TITLE, if (title.endsWith(".md")) title else "$title.md")
-            putExtra(Intent.EXTRA_TEXT, content)
-            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            putExtra(Intent.EXTRA_TITLE, filename)
         }
         context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         result.success(mapOf("status" to "note_save_confirmation_opened"))
