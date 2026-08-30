@@ -58,18 +58,36 @@ class LocalModelBridge(private val context: Context) : MethodChannel.MethodCallH
     private fun ensureEngine(modelPath: String): Engine {
         if (loadedPath == modelPath && engine != null) return engine!!
         engine?.close()
-        // CPU is the portable baseline. The LiteRT-LM package can be switched
-        // to GPU/NPU once the target phone's delegate libraries are bundled.
-        val config = EngineConfig(
-            modelPath = modelPath,
-            backend = Backend.CPU(),
-            cacheDir = context.cacheDir.absolutePath,
-        )
-        return Engine(config).also {
-            it.initialize()
-            engine = it
-            loadedPath = modelPath
+        engine = null
+        loadedPath = null
+        // Prefer the Adreno GPU: prefill and decode are markedly faster than the
+        // CPU baseline on capable hardware (e.g. Snapdragon 8 Elite). Fall back
+        // to CPU if the GPU delegate or this model bundle can't initialise, so
+        // the assistant still runs everywhere. (NPU/Hexagon would be faster
+        // still but needs the QNN delegate .so bundled in the APK.)
+        val backends = listOf("GPU" to Backend.GPU(), "CPU" to Backend.CPU())
+        var lastError: Throwable? = null
+        for ((name, backend) in backends) {
+            try {
+                val started = System.currentTimeMillis()
+                val candidate = Engine(
+                    EngineConfig(
+                        modelPath = modelPath,
+                        backend = backend,
+                        cacheDir = context.cacheDir.absolutePath,
+                    )
+                )
+                candidate.initialize()
+                engine = candidate
+                loadedPath = modelPath
+                Log.i(TAG, "LiteRT-LM engine ready on $name backend in ${System.currentTimeMillis() - started}ms")
+                return candidate
+            } catch (error: Throwable) {
+                lastError = error
+                Log.w(TAG, "LiteRT-LM init failed on $name backend: ${error.message}")
+            }
         }
+        throw lastError ?: IllegalStateException("Unable to initialise LiteRT-LM engine")
     }
 
     fun close() {
